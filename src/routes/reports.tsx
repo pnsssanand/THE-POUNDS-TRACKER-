@@ -176,8 +176,6 @@ function ReportsPage() {
                   <Line type="monotone" dataKey="income" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
                 </LineChart>
               </ResponsiveContainer>
-            ) : (
-               <div className="w-full h-full flex items-center justify-center text-zinc-500">No income data for this month.</div>
             )}
           </CardContent>
         </Card>

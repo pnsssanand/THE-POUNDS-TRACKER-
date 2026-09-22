@@ -1,1 +1,0 @@
-import{c as e,l as t,o as n,s as r,u as i}from"./format-B7EkMIOy.js";var a=`savings`;function o(e,n,r){return t(e,a,n,r)}function s(t){return e(t,a)}var c=(e,t)=>n(e,a,t),l=(e,t,n)=>i(e,a,t,n),u=(e,t)=>r(e,a,t);export{l as a,o as i,u as n,s as r,c as t};
