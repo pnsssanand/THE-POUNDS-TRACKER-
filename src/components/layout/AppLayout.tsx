@@ -21,9 +21,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (showSplash) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-white">
-        <div className="animate-pulse text-6xl font-extrabold tracking-tighter">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-white relative">
+        <div className="animate-pulse text-6xl font-extrabold tracking-tighter text-center px-4">
           <span className="text-emerald-500">£</span> → THE POUNDSTRACKER
+        </div>
+        <div className="absolute bottom-8 text-sm text-zinc-500 animate-pulse text-center">
+          designed and developed by anand pinisetty
         </div>
       </div>
     );
@@ -79,6 +82,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        <div className="p-4 border-t border-zinc-100 dark:border-zinc-800/50 text-xs text-zinc-400 text-center">
+          designed and developed by anand pinisetty
+        </div>
       </aside>
 
       {/* Main Content */}
