@@ -17,7 +17,7 @@ export function formatMoney(value: number): string {
 }
 
 export function formatINR(valueInGBP: number): string {
-  const valueInINR = valueInGBP * 111.0;
+  const valueInINR = valueInGBP * 130.0;
   return inr.format(Number.isFinite(valueInINR) ? valueInINR : 0);
 }
 
@@ -56,6 +56,17 @@ export function todayISO(): string {
 /** YYYY-MM month key. */
 export function monthKey(iso: string = todayISO()): string {
   return iso.slice(0, 7);
+}
+
+export function previousMonthKey(currentMonth: string = monthKey()): string {
+  const [y, m] = currentMonth.split("-").map(Number);
+  let prevM = m - 1;
+  let prevY = y;
+  if (prevM === 0) {
+    prevM = 12;
+    prevY -= 1;
+  }
+  return `${prevY}-${prevM.toString().padStart(2, "0")}`;
 }
 
 export function startOfWeekISO(date: Date = new Date()): string {

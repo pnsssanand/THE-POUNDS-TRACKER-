@@ -3,8 +3,9 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { getWorkSessions, addWorkSession, updateWorkSession, deleteWorkSession } from "../services/workService";
 import type { WorkSession } from "../types";
-import { formatMoney, formatDateUK, formatHours } from "../lib/format";
+import { formatMoney, formatDateUK, formatHours, monthKey } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -23,6 +24,7 @@ function WorkPage() {
   const [sessions, setSessions] = useState<WorkSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(monthKey());
   
   // Dialog state
   const [isOpen, setIsOpen] = useState(false);
@@ -109,12 +111,18 @@ function WorkPage() {
     }
   };
 
+  const availableMonths = Array.from(new Set([
+    monthKey(),
+    ...sessions.map(s => s.workDate.slice(0, 7))
+  ])).sort((a, b) => b.localeCompare(a));
+
   const filteredSessions = sessions.filter(s => 
-    s.companyName.toLowerCase().includes(searchTerm.toLowerCase())
+    s.companyName.toLowerCase().includes(searchTerm.toLowerCase()) &&
+    s.workDate.startsWith(selectedMonth)
   );
 
-  const totalEarnings = sessions.reduce((acc, s) => acc + s.earnings, 0);
-  const totalHours = sessions.reduce((acc, s) => acc + s.workedHours, 0);
+  const totalEarnings = filteredSessions.reduce((acc, s) => acc + s.earnings, 0);
+  const totalHours = filteredSessions.reduce((acc, s) => acc + s.workedHours, 0);
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -127,6 +135,16 @@ function WorkPage() {
           <Button variant="outline" size="icon" onClick={loadData}>
             <RefreshCw className="w-4 h-4" />
           </Button>
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Select Month" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableMonths.map(m => (
+                <SelectItem key={m} value={m}>{m}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Dialog open={isOpen} onOpenChange={(o) => { setIsOpen(o); if(!o) resetForm(); }}>
             <DialogTrigger asChild>
               <Button className="flex-1 sm:flex-none"><Plus className="w-4 h-4 mr-2" /> Add Shift</Button>
@@ -182,15 +200,15 @@ function WorkPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card className="shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Shifts</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">{sessions.length}</div></CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Month's Shifts</CardTitle></CardHeader>
+          <CardContent><div className="text-2xl font-bold">{filteredSessions.length}</div></CardContent>
         </Card>
         <Card className="shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Hours</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Month's Hours</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold">{formatHours(totalHours)}</div></CardContent>
         </Card>
         <Card className="shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total Earnings</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Month's Earnings</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold text-emerald-600">{formatMoney(totalEarnings)}</div></CardContent>
         </Card>
       </div>

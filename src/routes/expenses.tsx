@@ -11,7 +11,7 @@ import {
 import { getSettings, updateSettings } from "../services/userService";
 import type { Expense, UserSettings } from "../types";
 import { calculateDailyExpenses, calculateMonthlyExpenses, calculateTotalExpenses } from "../lib/calc";
-import { formatMoney, formatINR, formatDateUK } from "../lib/format";
+import { formatMoney, formatINR, formatDateUK, monthKey, previousMonthKey } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -37,6 +37,7 @@ function ExpensesPage() {
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState(monthKey());
   
   // Dialog state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -154,14 +155,21 @@ function ExpensesPage() {
     }
   };
 
+  const availableMonths = Array.from(new Set([
+    monthKey(),
+    ...expenses.map(e => e.date.slice(0, 7))
+  ])).sort((a, b) => b.localeCompare(a));
+
   const todayTotal = calculateDailyExpenses(expenses);
-  const monthTotal = calculateMonthlyExpenses(expenses);
+  const selectedMonthTotal = calculateMonthlyExpenses(expenses, selectedMonth);
+  const previousMonthTotal = calculateMonthlyExpenses(expenses, previousMonthKey(selectedMonth));
   const absoluteTotal = calculateTotalExpenses(expenses);
 
   const filteredExpenses = expenses.filter(e => {
     const matchesSearch = e.purpose.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = categoryFilter === "all" || e.category === categoryFilter;
-    return matchesSearch && matchesCategory;
+    const matchesMonth = e.date.startsWith(selectedMonth);
+    return matchesSearch && matchesCategory && matchesMonth;
   });
 
   return (
@@ -175,6 +183,16 @@ function ExpensesPage() {
           <Button variant="outline" size="icon" onClick={loadData}>
             <RefreshCw className="w-4 h-4" />
           </Button>
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Select Month" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableMonths.map(m => (
+                <SelectItem key={m} value={m}>{m}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) resetForm();
@@ -262,28 +280,31 @@ function ExpensesPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Today's Expenses</CardTitle>
+            <CardTitle className="text-sm font-medium">Month's Expenses (£)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col">
-              <span className="text-2xl font-bold">{formatMoney(todayTotal)}</span>
-              <span className="text-sm text-zinc-500 font-medium">{formatINR(todayTotal)}</span>
-            </div>
+            <div className="text-2xl font-bold">{formatMoney(selectedMonthTotal)}</div>
           </CardContent>
         </Card>
         
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">This Month's Expenses</CardTitle>
+            <CardTitle className="text-sm font-medium">Month's Expenses (₹)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col">
-              <span className="text-2xl font-bold">{formatMoney(monthTotal)}</span>
-              <span className="text-sm text-zinc-500 font-medium">{formatINR(monthTotal)}</span>
-            </div>
+            <div className="text-2xl font-bold">{formatINR(selectedMonthTotal)}</div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Previous Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatMoney(previousMonthTotal)}</div>
           </CardContent>
         </Card>
 
@@ -292,10 +313,7 @@ function ExpensesPage() {
             <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col">
-              <span className="text-2xl font-bold">{formatMoney(absoluteTotal)}</span>
-              <span className="text-sm text-zinc-500 font-medium">{formatINR(absoluteTotal)}</span>
-            </div>
+            <div className="text-2xl font-bold">{formatMoney(absoluteTotal)}</div>
           </CardContent>
         </Card>
       </div>
@@ -346,8 +364,8 @@ function ExpensesPage() {
                     <TableHead>Date</TableHead>
                     <TableHead>Purpose</TableHead>
                     <TableHead>Category</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Amount (INR)</TableHead>
+                    <TableHead className="text-right">Amount (£)</TableHead>
                     <TableHead className="w-[50px]"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -361,14 +379,11 @@ function ExpensesPage() {
                           {expense.category}
                         </span>
                       </TableCell>
-                      <TableCell className="capitalize text-zinc-500">
-                        {expense.paymentMode} {expense.paymentMode === "card" && expense.bankName ? `(${expense.bankName})` : ''}
+                      <TableCell className="text-zinc-500 font-medium">
+                        {formatINR(expense.amount)}
                       </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
-                        <div className="flex flex-col items-end">
-                          <span className="font-bold text-zinc-900 dark:text-zinc-100">{formatMoney(expense.amount)}</span>
-                          <span className="text-xs text-zinc-500 font-medium">{formatINR(expense.amount)}</span>
-                        </div>
+                        <span className="font-bold text-zinc-900 dark:text-zinc-100">{formatMoney(expense.amount)}</span>
                       </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
                         <Button variant="ghost" size="icon" onClick={() => handleEdit(expense)} className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 mr-1">
