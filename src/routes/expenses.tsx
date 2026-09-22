@@ -11,7 +11,7 @@ import {
 import { getSettings, updateSettings } from "../services/userService";
 import type { Expense, UserSettings } from "../types";
 import { calculateDailyExpenses, calculateMonthlyExpenses, calculateTotalExpenses } from "../lib/calc";
-import { formatMoney, formatDateUK } from "../lib/format";
+import { formatMoney, formatINR, formatDateUK } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -268,7 +268,10 @@ function ExpensesPage() {
             <CardTitle className="text-sm font-medium">Today's Expenses</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(todayTotal)}</div>
+            <div className="flex flex-col">
+              <span className="text-2xl font-bold">{formatMoney(todayTotal)}</span>
+              <span className="text-sm text-zinc-500 font-medium">{formatINR(todayTotal)}</span>
+            </div>
           </CardContent>
         </Card>
         
@@ -277,7 +280,10 @@ function ExpensesPage() {
             <CardTitle className="text-sm font-medium">This Month's Expenses</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(monthTotal)}</div>
+            <div className="flex flex-col">
+              <span className="text-2xl font-bold">{formatMoney(monthTotal)}</span>
+              <span className="text-sm text-zinc-500 font-medium">{formatINR(monthTotal)}</span>
+            </div>
           </CardContent>
         </Card>
 
@@ -286,7 +292,10 @@ function ExpensesPage() {
             <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(absoluteTotal)}</div>
+            <div className="flex flex-col">
+              <span className="text-2xl font-bold">{formatMoney(absoluteTotal)}</span>
+              <span className="text-sm text-zinc-500 font-medium">{formatINR(absoluteTotal)}</span>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -355,7 +364,12 @@ function ExpensesPage() {
                       <TableCell className="capitalize text-zinc-500">
                         {expense.paymentMode} {expense.paymentMode === "card" && expense.bankName ? `(${expense.bankName})` : ''}
                       </TableCell>
-                      <TableCell className="text-right font-bold">{formatMoney(expense.amount)}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        <div className="flex flex-col items-end">
+                          <span className="font-bold text-zinc-900 dark:text-zinc-100">{formatMoney(expense.amount)}</span>
+                          <span className="text-xs text-zinc-500 font-medium">{formatINR(expense.amount)}</span>
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
                         <Button variant="ghost" size="icon" onClick={() => handleEdit(expense)} className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 mr-1">
                           <Edit2 className="h-4 w-4" />

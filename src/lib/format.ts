@@ -5,8 +5,20 @@ const gbp = new Intl.NumberFormat("en-GB", {
   maximumFractionDigits: 2,
 });
 
+const inr = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
 export function formatMoney(value: number): string {
   return gbp.format(Number.isFinite(value) ? value : 0);
+}
+
+export function formatINR(valueInGBP: number): string {
+  const valueInINR = valueInGBP * 111.0;
+  return inr.format(Number.isFinite(valueInINR) ? valueInINR : 0);
 }
 
 export function formatSignedMoney(value: number): string {
