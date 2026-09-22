@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { getWorkSessions, addWorkSession, updateWorkSession, deleteWorkSession } from "../services/workService";
 import type { WorkSession } from "../types";
-import { formatMoney, formatDateUK, formatHours, monthKey } from "../lib/format";
+import { formatMoney, formatINR, formatDateUK, formatHours, monthKey } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Button } from "../components/ui/button";
@@ -198,7 +198,7 @@ function WorkPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="shadow-sm">
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Month's Shifts</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold">{filteredSessions.length}</div></CardContent>
@@ -208,8 +208,12 @@ function WorkPage() {
           <CardContent><div className="text-2xl font-bold">{formatHours(totalHours)}</div></CardContent>
         </Card>
         <Card className="shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Month's Earnings</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Month's Earnings (£)</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold text-emerald-600">{formatMoney(totalEarnings)}</div></CardContent>
+        </Card>
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Month's Earnings (₹)</CardTitle></CardHeader>
+          <CardContent><div className="text-2xl font-bold text-emerald-600">{formatINR(totalEarnings)}</div></CardContent>
         </Card>
       </div>
 
