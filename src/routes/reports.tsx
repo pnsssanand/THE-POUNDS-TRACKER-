@@ -59,10 +59,6 @@ function ReportsPage() {
     loadData();
   }, [uid]);
 
-  if (loading) {
-    return <div className="flex min-h-screen items-center justify-center"><div className="animate-pulse text-zinc-500">Loading reports...</div></div>;
-  }
-
   // Generate unique months for the selector
   const availableMonths = Array.from(new Set([
     monthKey(),
@@ -162,11 +158,15 @@ function ReportsPage() {
 
         <Card className="col-span-1 lg:col-span-2 shadow-sm">
           <CardHeader>
-            <CardTitle>Income Trend</CardTitle>
-            <CardDescription>Daily earnings over {selectedMonth}</CardDescription>
+            <CardTitle>Cash Flow Overview</CardTitle>
+            <CardDescription>Monthly comparison of earnings vs expenses</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px]">
-            {trendData.length > 0 ? (
+          <CardContent className="min-h-[300px]">
+            {loading ? (
+               <div className="h-[300px] flex items-center justify-center text-zinc-500 animate-pulse">Loading chart data...</div>
+            ) : chartData.length === 0 ? (
+               <div className="h-[300px] flex items-center justify-center text-zinc-500">No data available yet</div>
+            ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={trendData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />

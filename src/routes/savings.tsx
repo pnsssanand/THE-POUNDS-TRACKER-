@@ -146,8 +146,19 @@ function SavingsPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="animate-pulse text-zinc-500">Accessing secure vault...</div>
+      <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in zoom-in-95 duration-500">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold tracking-tight">Savings Vault</h1>
+              <ShieldCheck className="w-6 h-6 text-emerald-500" />
+            </div>
+            <p className="text-zinc-500 mt-1">Your secured savings overview.</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-pulse text-zinc-500">Accessing secure vault...</div>
+        </div>
       </div>
     );
   }

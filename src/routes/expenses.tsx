@@ -154,14 +154,6 @@ function ExpensesPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="animate-pulse text-zinc-500">Loading expenses...</div>
-      </div>
-    );
-  }
-
   const todayTotal = calculateDailyExpenses(expenses);
   const monthTotal = calculateMonthlyExpenses(expenses);
   const absoluteTotal = calculateTotalExpenses(expenses);
@@ -329,7 +321,11 @@ function ExpensesPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {filteredExpenses.length === 0 ? (
+          {loading ? (
+            <div className="text-center py-12 text-zinc-500 animate-pulse">
+              Loading expenses...
+            </div>
+          ) : filteredExpenses.length === 0 ? (
             <div className="text-center py-12 text-zinc-500">
               No expenses found.
             </div>

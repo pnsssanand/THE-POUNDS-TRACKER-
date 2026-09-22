@@ -112,13 +112,21 @@ function ProfilePage() {
     }
   };
 
-  if (loading || !profile || !settings) {
+  if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="animate-pulse text-zinc-500">Loading profile...</div>
+      <div className="p-4 md:p-8 max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Profile & Settings</h1>
+          <p className="text-zinc-500 mt-1">Manage your account and monthly targets.</p>
+        </div>
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-pulse text-zinc-500">Loading profile...</div>
+        </div>
       </div>
     );
   }
+
+  if (!profile || !settings) return null;
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

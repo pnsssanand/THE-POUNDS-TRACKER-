@@ -109,14 +109,6 @@ function WorkPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="animate-pulse text-zinc-500">Loading work sessions...</div>
-      </div>
-    );
-  }
-
   const filteredSessions = sessions.filter(s => 
     s.companyName.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -214,7 +206,9 @@ function WorkPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {filteredSessions.length === 0 ? (
+          {loading ? (
+             <div className="text-center py-12 text-zinc-500 animate-pulse">Loading work sessions...</div>
+          ) : filteredSessions.length === 0 ? (
              <div className="text-center py-12 text-zinc-500">No work sessions found.</div>
           ) : (
             <div className="overflow-x-auto">

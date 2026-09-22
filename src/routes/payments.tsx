@@ -55,14 +55,6 @@ function PaymentsPage() {
     loadData();
   }, [uid]);
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="animate-pulse text-zinc-500">Loading payments...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex justify-between items-center">
@@ -82,18 +74,18 @@ function PaymentsPage() {
         </TabsList>
 
         <TabsContent value="upcoming" className="mt-6 space-y-4">
-          <UpcomingSection uid={uid} upcoming={upcoming} reload={loadData} />
+          <UpcomingSection uid={uid} upcoming={upcoming} loading={loading} reload={loadData} />
         </TabsContent>
 
         <TabsContent value="incoming" className="mt-6 space-y-4">
-          <IncomingSection uid={uid} incoming={incoming} reload={loadData} />
+          <IncomingSection uid={uid} incoming={incoming} loading={loading} reload={loadData} />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function UpcomingSection({ uid, upcoming, reload }: { uid?: string, upcoming: UpcomingPayment[], reload: () => void }) {
+function UpcomingSection({ uid, upcoming, loading, reload }: { uid?: string, upcoming: UpcomingPayment[], loading: boolean, reload: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -217,36 +209,41 @@ function UpcomingSection({ uid, upcoming, reload }: { uid?: string, upcoming: Up
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {pending.map(p => (
-          <Card key={p.id} className="shadow-sm border-l-4 border-l-orange-500">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-lg">{p.payerName}</h3>
-                  <div className="flex items-center text-sm text-zinc-500 mt-1">
-                    <Clock className="w-4 h-4 mr-1" /> Due: {formatDateUK(p.dueDate)}
+        {loading ? (
+          <div className="col-span-2 text-center py-12 text-zinc-500 animate-pulse">
+            Loading payments...
+          </div>
+        ) : pending.length > 0 ? (
+          pending.map(p => (
+            <Card key={p.id} className="shadow-sm border-l-4 border-l-orange-500">
+              <CardContent className="p-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-lg">{p.payerName}</h3>
+                    <div className="flex items-center text-sm text-zinc-500 mt-1">
+                      <Clock className="w-4 h-4 mr-1" /> Due: {formatDateUK(p.dueDate)}
+                    </div>
+                    <span className="inline-block mt-2 text-xs bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-md">{p.category}</span>
                   </div>
-                  <span className="inline-block mt-2 text-xs bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-md">{p.category}</span>
+                  <div className="text-right">
+                    <div className="text-xl font-bold text-red-600">{formatMoney(p.amount)}</div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-xl font-bold text-red-600">{formatMoney(p.amount)}</div>
+                <div className="mt-6 flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => handleEdit(p)} className="text-blue-500">
+                    <Edit2 className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)} className="text-red-500">
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => handleMarkPaid(p.id)} className="text-emerald-600 border-emerald-200 bg-emerald-50 hover:bg-emerald-100">
+                    <Check className="w-4 h-4 mr-1" /> Mark Paid
+                  </Button>
                 </div>
-              </div>
-              <div className="mt-6 flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => handleEdit(p)} className="text-blue-500">
-                  <Edit2 className="w-4 h-4" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)} className="text-red-500">
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => handleMarkPaid(p.id)} className="text-emerald-600 border-emerald-200 bg-emerald-50 hover:bg-emerald-100">
-                  <Check className="w-4 h-4 mr-1" /> Mark Paid
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        {pending.length === 0 && (
+              </CardContent>
+            </Card>
+          ))
+        ) : (
           <div className="col-span-2 text-center py-12 text-zinc-500 bg-zinc-50 dark:bg-zinc-900 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800">
             No upcoming bills. You're all caught up!
           </div>
