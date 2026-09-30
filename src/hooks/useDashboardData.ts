@@ -78,6 +78,7 @@ export function useDashboardData() {
     loading,
     error,
     settings,
+    setSettings,
     sessions,
     expenses,
     summary: {

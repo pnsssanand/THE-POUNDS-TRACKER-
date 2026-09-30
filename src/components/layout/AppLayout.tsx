@@ -21,12 +21,31 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (showSplash) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-950 text-white relative">
-        <div className="animate-pulse text-6xl font-extrabold tracking-tighter text-center px-4">
-          <span className="text-emerald-500">£</span> → THE POUNDSTRACKER
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#0a0a0a] text-white relative overflow-hidden">
+        {/* Glowing background effect */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40vw] h-[40vw] max-w-[400px] max-h-[400px] bg-emerald-500/20 blur-[120px] rounded-full" />
+        
+        <div className="relative z-10 flex flex-col items-center animate-in fade-in zoom-in-95 duration-1000">
+          {/* Logo container with spin */}
+          <div className="relative flex items-center justify-center mb-6 w-20 h-20">
+            <div className="absolute inset-0 rounded-2xl border-t-2 border-emerald-500 animate-spin opacity-70" />
+            <div className="absolute inset-2 rounded-xl bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+              <span className="text-4xl font-bold text-white shadow-sm">£</span>
+            </div>
+          </div>
+          
+          <h1 className="text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-white via-zinc-200 to-zinc-500">
+            Pounds Tracker
+          </h1>
         </div>
-        <div className="absolute bottom-8 text-sm text-zinc-500 animate-pulse text-center">
-          designed and developed by anand pinisetty
+
+        <div className="absolute bottom-12 text-center z-10 animate-pulse">
+          <p className="text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-500 mb-1">
+            Designed & Developed by
+          </p>
+          <p className="text-sm font-medium text-emerald-400/90 tracking-wide">
+            Anand Pinisetty
+          </p>
         </div>
       </div>
     );
@@ -82,8 +101,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="p-4 border-t border-zinc-100 dark:border-zinc-800/50 text-xs text-zinc-400 text-center">
-          designed and developed by anand pinisetty
+        <div className="p-4 mt-auto">
+          <div className="relative overflow-hidden rounded-2xl bg-zinc-100 dark:bg-zinc-900/50 p-4 border border-zinc-200/50 dark:border-zinc-800/50 group hover:border-emerald-500/30 transition-colors">
+            {/* Subtle gradient background inside */}
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+            
+            <div className="relative z-10 text-center space-y-1.5">
+              <p className="text-[10px] font-bold tracking-[0.2em] uppercase bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-emerald-400 dark:from-emerald-400 dark:to-emerald-200">
+                Pounds Tracker
+              </p>
+              <div className="h-px w-8 mx-auto bg-zinc-200 dark:bg-zinc-800" />
+              <p className="text-[9px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider leading-relaxed">
+                Designed & Developed by
+              </p>
+              <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Anand Pinisetty
+              </p>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -94,8 +129,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 pb-safe">
-        <div className="flex items-center justify-around h-16 px-2">
-          {navItems.slice(0, 5).map((item) => {
+        <div className="flex items-center justify-around h-16 px-2 overflow-x-auto">
+          {navItems.map((item) => {
             const isActive = location.pathname === item.href;
             return (
               <Link

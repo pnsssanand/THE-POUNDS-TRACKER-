@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   banks: DEFAULT_BANKS,
   savingsPinHash: null,
   last80PercentNotificationMonth: null,
+  bankBalance: 0,
 };
 
 export function normaliseUsername(username: string): string {
@@ -128,6 +129,7 @@ export async function getSettings(uid: string): Promise<UserSettings> {
     banks: Array.isArray(data["banks"]) ? (data["banks"] as string[]) : DEFAULT_BANKS,
     savingsPinHash: (data["savingsPinHash"] as string | null) ?? null,
     last80PercentNotificationMonth: (data["last80PercentNotificationMonth"] as string | null) ?? null,
+    bankBalance: Number(data["bankBalance"] ?? 0),
   };
 }
 

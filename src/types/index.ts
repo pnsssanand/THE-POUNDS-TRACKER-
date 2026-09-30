@@ -25,6 +25,7 @@ export interface UserSettings {
   banks: string[];
   savingsPinHash?: string | null | undefined;
   last80PercentNotificationMonth?: string | null | undefined;
+  bankBalance?: number;
 }
 
 export interface WorkSession {

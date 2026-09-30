@@ -5,7 +5,7 @@ import { getSettings, updateSettings } from "../services/userService";
 import { getSavings, addSaving, updateSaving, deleteSaving } from "../services/savingsService";
 import type { Saving, UserSettings } from "../types";
 import { hashPin } from "../lib/pin";
-import { formatMoney } from "../lib/format";
+import { formatMoney, formatINR } from "../lib/format";
 import { calculateTotalSavings } from "../lib/calc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -314,8 +314,9 @@ function SavingsPage() {
                   </Button>
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+              <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 flex justify-between items-end">
                 <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{formatMoney(s.amount)}</div>
+                <div className="text-sm font-medium text-zinc-500">{formatINR(s.amount)}</div>
               </div>
             </CardContent>
           </Card>

@@ -87,6 +87,23 @@ function ReportsPage() {
     }, [] as any[])
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  // Repeated expense purpose data
+  const purposeData = expenses
+    .filter(e => e.date.startsWith(selectedMonth))
+    .reduce((acc, curr) => {
+      const purpose = curr.purpose.trim().toLowerCase();
+      const existing = acc.find(x => x.key === purpose);
+      if (existing) {
+        existing.amount += curr.amount;
+        existing.count += 1;
+      } else {
+        acc.push({ key: purpose, name: curr.purpose.trim(), amount: curr.amount, count: 1 });
+      }
+      return acc;
+    }, [] as any[])
+    .filter(x => x.count > 1) // "repeated expense purpose"
+    .sort((a, b) => b.amount - a.amount);
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -199,6 +216,30 @@ function ReportsPage() {
               </ResponsiveContainer>
             ) : (
               <div className="w-full text-center text-zinc-500">No expenses recorded for this month.</div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="col-span-1 lg:col-span-3 shadow-sm">
+          <CardHeader>
+            <CardTitle>Repeated Expenses by Purpose</CardTitle>
+            <CardDescription>Total spent on repeated purposes this month</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            {purposeData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={purposeData} layout="vertical" margin={{ left: 40 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} opacity={0.3} />
+                  <XAxis type="number" axisLine={false} tickLine={false} tickFormatter={(value) => `£${value}`} />
+                  <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={100} />
+                  <Tooltip cursor={{fill: 'transparent'}} formatter={(value, name, props) => [`£${value} (${props.payload.count} times)`, 'Spent']} />
+                  <Bar dataKey="amount" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-zinc-500">
+                No repeated expenses recorded for this month.
+              </div>
             )}
           </CardContent>
         </Card>

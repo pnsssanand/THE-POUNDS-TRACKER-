@@ -1,13 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useDashboardData } from "../hooks/useDashboardData";
+import { updateSettings } from "../services/userService";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Progress } from "../components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 import { monthStatus, generateMotivation } from "../lib/calc";
 import { formatMoney } from "../lib/format";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { PoundSterling, TrendingUp, TrendingDown, Clock, PiggyBank, Calendar, Wallet } from "lucide-react";
+import { PoundSterling, TrendingUp, TrendingDown, Clock, PiggyBank, Calendar, Wallet, Landmark, Edit2 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -64,7 +69,44 @@ function Index() {
 }
 
 function Dashboard({ user }: { user: any }) {
-  const { summary, settings, loading } = useDashboardData();
+  const { summary, settings, setSettings, loading } = useDashboardData();
+  const [isBankModalOpen, setIsBankModalOpen] = useState(false);
+  const [bankBalanceInput, setBankBalanceInput] = useState("");
+  const [isGoalsModalOpen, setIsGoalsModalOpen] = useState(false);
+  const [hoursGoalInput, setHoursGoalInput] = useState("");
+  const [earningsGoalInput, setEarningsGoalInput] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleBankBalanceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const val = Number(bankBalanceInput);
+      await updateSettings(user.uid, { bankBalance: val });
+      if (settings && setSettings) setSettings({ ...settings, bankBalance: val });
+      setIsBankModalOpen(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoalsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const h = Number(hoursGoalInput);
+      const m = Number(earningsGoalInput);
+      await updateSettings(user.uid, { monthlyHoursTarget: h, monthlyEarningsTarget: m });
+      if (settings && setSettings) setSettings({ ...settings, monthlyHoursTarget: h, monthlyEarningsTarget: m });
+      setIsGoalsModalOpen(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -140,11 +182,38 @@ function Dashboard({ user }: { user: any }) {
 
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Savings</CardTitle>
-            <PiggyBank className="h-4 w-4 text-purple-500" />
+            <CardTitle className="text-sm font-medium">Bank Balance</CardTitle>
+            <Landmark className="h-4 w-4 text-indigo-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(summary.totalSavings)}</div>
+            <div className="flex items-center justify-between">
+              <div className="text-2xl font-bold">{formatMoney(settings?.bankBalance || 0)}</div>
+              <Dialog open={isBankModalOpen} onOpenChange={(o) => {
+                setIsBankModalOpen(o);
+                if (o) setBankBalanceInput((settings?.bankBalance || 0).toString());
+              }}>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-900">
+                    <Edit2 className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <form onSubmit={handleBankBalanceSubmit}>
+                    <DialogHeader><DialogTitle>Update Bank Balance</DialogTitle></DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid gap-2">
+                        <Label>Current Balance (£)</Label>
+                        <Input type="number" step="0.01" value={bankBalanceInput} onChange={e => setBankBalanceInput(e.target.value)} required />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setIsBankModalOpen(false)}>Cancel</Button>
+                      <Button type="submit" disabled={isSubmitting}>Save</Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -182,9 +251,41 @@ function Dashboard({ user }: { user: any }) {
         </Card>
 
         <Card className="col-span-full lg:col-span-3 shadow-sm flex flex-col">
-          <CardHeader>
-            <CardTitle>Monthly Goals</CardTitle>
-            <CardDescription>Track your progress</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Monthly Goals</CardTitle>
+              <CardDescription>Track your progress</CardDescription>
+            </div>
+            <Dialog open={isGoalsModalOpen} onOpenChange={(o) => {
+              setIsGoalsModalOpen(o);
+              if (o) {
+                setHoursGoalInput((settings?.monthlyHoursTarget || 0).toString());
+                setEarningsGoalInput((settings?.monthlyEarningsTarget || 0).toString());
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm"><Edit2 className="h-3 w-3 mr-2" /> Edit</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <form onSubmit={handleGoalsSubmit}>
+                  <DialogHeader><DialogTitle>Edit Monthly Goals</DialogTitle></DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label>Working Hours Target</Label>
+                      <Input type="number" step="1" value={hoursGoalInput} onChange={e => setHoursGoalInput(e.target.value)} required />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Earnings Target (£)</Label>
+                      <Input type="number" step="0.01" value={earningsGoalInput} onChange={e => setEarningsGoalInput(e.target.value)} required />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setIsGoalsModalOpen(false)}>Cancel</Button>
+                    <Button type="submit" disabled={isSubmitting}>Save</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
           </CardHeader>
           <CardContent className="flex-1 space-y-8">
             <div className="space-y-2">

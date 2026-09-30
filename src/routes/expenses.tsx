@@ -116,6 +116,11 @@ function ExpensesPage() {
         await updateExpense(uid, editingId, input);
       } else {
         await addExpense(uid, input);
+        if (paymentMode === "card" && settings) {
+          const newBalance = (settings.bankBalance || 0) - parseFloat(amount);
+          await updateSettings(uid, { bankBalance: newBalance });
+          setSettings({ ...settings, bankBalance: newBalance });
+        }
       }
 
       if (savePreferred) {
