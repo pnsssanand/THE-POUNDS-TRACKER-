@@ -45,6 +45,8 @@ export interface WorkSession {
 }
 
 export type ExpenseCategory =
+  | "Indian Store"
+  | "Indian store"
   | "Food"
   | "Groceries"
   | "Transport"

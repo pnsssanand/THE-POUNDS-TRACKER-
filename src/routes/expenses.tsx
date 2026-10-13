@@ -47,7 +47,7 @@ function ExpensesPage() {
   const [purpose, setPurpose] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [category, setCategory] = useState<typeof EXPENSE_CATEGORIES[number]>("Other");
+  const [category, setCategory] = useState<typeof EXPENSE_CATEGORIES[number]>("Indian Store");
   const [paymentMode, setPaymentMode] = useState<"cash" | "card">("cash");
   const [bankName, setBankName] = useState("");
   const [notes, setNotes] = useState("");
@@ -145,7 +145,7 @@ function ExpensesPage() {
     setPurpose("");
     setAmount("");
     setDate(new Date().toISOString().split('T')[0]);
-    setCategory("Other");
+    setCategory("Indian Store");
     setPaymentMode(settings?.preferredPaymentMode || "cash");
     setBankName(settings?.preferredBank || "");
     setNotes("");

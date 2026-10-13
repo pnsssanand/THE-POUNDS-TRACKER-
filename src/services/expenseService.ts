@@ -13,6 +13,7 @@ const NAME = "expenses";
 export type ExpenseInput = Omit<Expense, "id" | "createdAt" | "updatedAt">;
 
 export const EXPENSE_CATEGORIES = [
+  "Indian Store",
   "Food",
   "Groceries",
   "Transport",
