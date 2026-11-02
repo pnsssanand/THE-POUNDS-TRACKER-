@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   savingsPinHash: null,
   last80PercentNotificationMonth: null,
   bankBalance: 0,
+  gbpToInrRate: 110,
 };
 
 export function normaliseUsername(username: string): string {
@@ -130,6 +131,7 @@ export async function getSettings(uid: string): Promise<UserSettings> {
     savingsPinHash: (data["savingsPinHash"] as string | null) ?? null,
     last80PercentNotificationMonth: (data["last80PercentNotificationMonth"] as string | null) ?? null,
     bankBalance: Number(data["bankBalance"] ?? 0),
+    gbpToInrRate: Number(data["gbpToInrRate"] ?? 110),
   };
 }
 

@@ -16,6 +16,7 @@ import { Route as PaymentsRouteImport } from './routes/payments'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SavingsRouteImport } from './routes/savings'
+import { Route as ShoppingRouteImport } from './routes/shopping'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as WorkRouteImport } from './routes/work'
 
@@ -54,6 +55,11 @@ const SavingsRoute = SavingsRouteImport.update({
   path: '/savings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShoppingRoute = ShoppingRouteImport.update({
+  id: '/shopping',
+  path: '/shopping',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRoute
   '/reports': typeof ReportsRoute
   '/savings': typeof SavingsRoute
+  '/shopping': typeof ShoppingRoute
   '/signup': typeof SignupRoute
   '/work': typeof WorkRoute
 }
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/reports': typeof ReportsRoute
   '/savings': typeof SavingsRoute
+  '/shopping': typeof ShoppingRoute
   '/signup': typeof SignupRoute
   '/work': typeof WorkRoute
 }
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRoute
   '/reports': typeof ReportsRoute
   '/savings': typeof SavingsRoute
+  '/shopping': typeof ShoppingRoute
   '/signup': typeof SignupRoute
   '/work': typeof WorkRoute
 }
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/reports'
     | '/savings'
+    | '/shopping'
     | '/signup'
     | '/work'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/reports'
     | '/savings'
+    | '/shopping'
     | '/signup'
     | '/work'
   id:
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/reports'
     | '/savings'
+    | '/shopping'
     | '/signup'
     | '/work'
   fileRoutesById: FileRoutesById
@@ -143,6 +155,7 @@ export interface RootRouteChildren {
   ProfileRoute: typeof ProfileRoute
   ReportsRoute: typeof ReportsRoute
   SavingsRoute: typeof SavingsRoute
+  ShoppingRoute: typeof ShoppingRoute
   SignupRoute: typeof SignupRoute
   WorkRoute: typeof WorkRoute
 }
@@ -198,6 +211,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SavingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shopping': {
+      id: '/shopping'
+      path: '/shopping'
+      fullPath: '/shopping'
+      preLoaderRoute: typeof ShoppingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProfileRoute: ProfileRoute,
   ReportsRoute: ReportsRoute,
   SavingsRoute: SavingsRoute,
+  ShoppingRoute: ShoppingRoute,
   SignupRoute: SignupRoute,
   WorkRoute: WorkRoute,
 }

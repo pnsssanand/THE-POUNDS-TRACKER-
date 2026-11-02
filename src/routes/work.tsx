@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { getWorkSessions, addWorkSession, updateWorkSession, deleteWorkSession } from "../services/workService";
-import type { WorkSession } from "../types";
-import { formatMoney, formatINR, formatDateUK, formatHours, monthKey } from "../lib/format";
+import { getSettings } from "../services/userService";
+import type { WorkSession, UserSettings } from "../types";
+import { formatMoney, formatINR, formatDateUK, formatHours, monthKey, getStoredGbpRate } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Button } from "../components/ui/button";
@@ -22,9 +23,12 @@ function WorkPage() {
   const uid = user?.uid;
 
   const [sessions, setSessions] = useState<WorkSession[]>([]);
+  const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(monthKey());
+
+  const gbpRate = settings?.gbpToInrRate || getStoredGbpRate();
   
   // Dialog state
   const [isOpen, setIsOpen] = useState(false);
@@ -52,6 +56,10 @@ function WorkPage() {
   };
 
   useEffect(() => {
+    if (!uid) return;
+    getSettings(uid).then(s => {
+      if (s) setSettings(s);
+    });
     loadData();
   }, [uid]);
 
@@ -180,7 +188,12 @@ function WorkPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label>Hourly Rate (£)</Label>
-                    <Input type="number" step="0.01" min="0" value={hourlyRate} onChange={e => setHourlyRate(e.target.value)} required />
+                    <Input type="number" step="0.01" min="0" value={hourlyRate} onChange={e => setHourlyRate(e.target.value)} required placeholder="0.00" />
+                    {hourlyRate && !isNaN(parseFloat(hourlyRate)) && (
+                      <p className="text-[10px] text-zinc-500">
+                        ≈ ₹{(parseFloat(hourlyRate) * gbpRate).toFixed(0)}/hr at ₹{gbpRate.toFixed(2)}/£
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="grid gap-2">
@@ -213,7 +226,7 @@ function WorkPage() {
         </Card>
         <Card className="shadow-sm">
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Month's Earnings (₹)</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-emerald-600">{formatINR(totalEarnings)}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold text-emerald-600">{formatINR(totalEarnings, gbpRate)}</div></CardContent>
         </Card>
       </div>
 
@@ -252,7 +265,10 @@ function WorkPage() {
                       <TableCell>{s.companyName}</TableCell>
                       <TableCell>{formatHours(s.workedHours)}</TableCell>
                       <TableCell>{formatMoney(s.hourlyRate)}/hr</TableCell>
-                      <TableCell className="text-right font-bold text-emerald-600">{formatMoney(s.earnings)}</TableCell>
+                      <TableCell className="text-right font-bold text-emerald-600 whitespace-nowrap">
+                        <div>{formatMoney(s.earnings)}</div>
+                        <div className="text-[11px] font-normal text-zinc-400">{formatINR(s.earnings, gbpRate)}</div>
+                      </TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="icon" onClick={() => handleEdit(s)} className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 mr-1">
                           <Edit2 className="h-4 w-4" />

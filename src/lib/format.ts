@@ -16,9 +16,40 @@ export function formatMoney(value: number): string {
   return gbp.format(Number.isFinite(value) ? value : 0);
 }
 
-export function formatINR(valueInGBP: number): string {
-  const valueInINR = valueInGBP * 130.0;
+export const DEFAULT_GBP_TO_INR = 110.0;
+
+export function getStoredGbpRate(): number {
+  if (typeof window !== "undefined") {
+    const val = localStorage.getItem("pt_gbp_to_inr_rate");
+    if (val) {
+      const parsed = parseFloat(val);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return DEFAULT_GBP_TO_INR;
+}
+
+export function setStoredGbpRate(rate: number): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("pt_gbp_to_inr_rate", rate.toString());
+    window.dispatchEvent(new CustomEvent("gbp-rate-changed", { detail: rate }));
+  }
+}
+
+export function formatINR(valueInGBP: number, customRate?: number): string {
+  const rate = customRate ?? getStoredGbpRate();
+  const valueInINR = valueInGBP * rate;
   return inr.format(Number.isFinite(valueInINR) ? valueInINR : 0);
+}
+
+export function convertGbpToInr(gbpAmount: number, customRate?: number): number {
+  const rate = customRate ?? getStoredGbpRate();
+  return gbpAmount * rate;
+}
+
+export function convertInrToGbp(inrAmount: number, customRate?: number): number {
+  const rate = customRate ?? getStoredGbpRate();
+  return inrAmount / (rate || 1);
 }
 
 export function formatSignedMoney(value: number): string {

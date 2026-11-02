@@ -268,7 +268,7 @@ function ReportsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatMoney(monthlyReport.income)}</div>
-            <p className="text-xs text-zinc-500 mt-1">{monthSessions.length} shifts · {formatHours(monthlyReport.workedHours)}</p>
+            <p className="text-xs text-zinc-500 mt-1">{formatINR(monthlyReport.income)} · {monthSessions.length} shifts · {formatHours(monthlyReport.workedHours)}</p>
           </CardContent>
         </Card>
 
@@ -296,7 +296,7 @@ function ReportsPage() {
             <div className={`text-2xl font-bold ${monthlyReport.net >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
               {formatMoney(monthlyReport.net)}
             </div>
-            <p className="text-xs text-zinc-500 mt-1">{monthStatus(monthlyReport.net)}</p>
+            <p className="text-xs text-zinc-500 mt-1">{formatINR(monthlyReport.net)} · {monthStatus(monthlyReport.net)}</p>
           </CardContent>
         </Card>
 
@@ -317,9 +317,14 @@ function ReportsPage() {
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between mt-1">
-                  <span className="text-lg font-bold text-amber-600 dark:text-amber-400">
-                    {formatMoney(highestCategory.amount)}
-                  </span>
+                  <div>
+                    <span className="text-lg font-bold text-amber-600 dark:text-amber-400">
+                      {formatMoney(highestCategory.amount)}
+                    </span>
+                    <span className="text-[11px] text-zinc-500 ml-1.5">
+                      ≈ {formatINR(highestCategory.amount)}
+                    </span>
+                  </div>
                   <Badge variant="secondary" className="text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
                     {highestCategory.percentage.toFixed(0)}% of total
                   </Badge>

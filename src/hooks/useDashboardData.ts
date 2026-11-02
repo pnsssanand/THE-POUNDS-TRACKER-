@@ -81,6 +81,9 @@ export function useDashboardData() {
     setSettings,
     sessions,
     expenses,
+    savings,
+    upcoming,
+    incoming,
     summary: {
       todayEarnings,
       monthlyEarnings,

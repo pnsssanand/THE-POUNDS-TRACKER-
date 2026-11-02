@@ -26,6 +26,7 @@ export interface UserSettings {
   savingsPinHash?: string | null | undefined;
   last80PercentNotificationMonth?: string | null | undefined;
   bankBalance?: number;
+  gbpToInrRate?: number;
 }
 
 export interface WorkSession {
@@ -103,6 +104,20 @@ export interface Saving {
   accountType: "cash" | "bank";
   accountName: string;
   amount: number;
+  createdAt?: string | undefined;
+  updatedAt?: string | undefined;
+}
+
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  estimatedPrice: number; // Price per unit in GBP
+  quantity: number;
+  unit?: string; // pcs, kg, pack, etc.
+  category?: string; // Groceries, Indian Store, etc.
+  store?: string;
+  isBought: boolean;
+  notes?: string;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }

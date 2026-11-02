@@ -11,8 +11,9 @@ import {
   updateIncomingPayment,
   deleteIncomingPayment
 } from "../services/paymentService";
-import type { UpcomingPayment, IncomingPayment } from "../types";
-import { formatMoney, formatDateUK } from "../lib/format";
+import { getSettings } from "../services/userService";
+import type { UpcomingPayment, IncomingPayment, UserSettings } from "../types";
+import { formatMoney, formatINR, formatDateUK, getStoredGbpRate } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -20,7 +21,7 @@ import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Check, Plus, Trash2, Clock, CheckCircle2, RefreshCw, Edit2 } from "lucide-react";
+import { Check, Plus, Trash2, Clock, CheckCircle2, RefreshCw, Edit2, ArrowLeftRight } from "lucide-react";
 
 export const Route = createFileRoute("/payments")({
   component: PaymentsPage,
@@ -32,18 +33,23 @@ function PaymentsPage() {
 
   const [upcoming, setUpcoming] = useState<UpcomingPayment[]>([]);
   const [incoming, setIncoming] = useState<IncomingPayment[]>([]);
+  const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const gbpRate = settings?.gbpToInrRate || getStoredGbpRate();
 
   const loadData = async () => {
     if (!uid) return;
     setLoading(true);
     try {
-      const [upData, inData] = await Promise.all([
+      const [upData, inData, sData] = await Promise.all([
         getUpcomingPayments(uid),
-        getIncomingPayments(uid)
+        getIncomingPayments(uid),
+        getSettings(uid)
       ]);
       setUpcoming(upData);
       setIncoming(inData);
+      setSettings(sData);
     } catch (err) {
       console.error(err);
     } finally {
@@ -54,6 +60,14 @@ function PaymentsPage() {
   useEffect(() => {
     loadData();
   }, [uid]);
+
+  const totalUpcomingBills = upcoming
+    .filter((p) => p.status === "pending")
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const totalExpectedIncome = incoming
+    .filter((p) => p.status === "expected")
+    .reduce((sum, p) => sum + p.amount, 0);
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -67,6 +81,33 @@ function PaymentsPage() {
         </Button>
       </div>
 
+      {/* Summary Cards */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card className="shadow-sm border-l-4 border-l-orange-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-zinc-500">Upcoming Bills to Pay</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{formatMoney(totalUpcomingBills)}</div>
+            <p className="text-xs font-semibold text-zinc-500 mt-1">
+              ≈ {formatINR(totalUpcomingBills, gbpRate)}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm border-l-4 border-l-emerald-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-zinc-500">Total Expected Income</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">+{formatMoney(totalExpectedIncome)}</div>
+            <p className="text-xs font-semibold text-zinc-500 mt-1">
+              ≈ {formatINR(totalExpectedIncome, gbpRate)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs defaultValue="upcoming" className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="upcoming">Upcoming Payments</TabsTrigger>
@@ -74,22 +115,35 @@ function PaymentsPage() {
         </TabsList>
 
         <TabsContent value="upcoming" className="mt-6 space-y-4">
-          <UpcomingSection uid={uid} upcoming={upcoming} loading={loading} reload={loadData} />
+          <UpcomingSection uid={uid} upcoming={upcoming} loading={loading} reload={loadData} gbpRate={gbpRate} />
         </TabsContent>
 
         <TabsContent value="incoming" className="mt-6 space-y-4">
-          <IncomingSection uid={uid} incoming={incoming} loading={loading} reload={loadData} />
+          <IncomingSection uid={uid} incoming={incoming} reload={loadData} gbpRate={gbpRate} />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function UpcomingSection({ uid, upcoming, loading, reload }: { uid?: string, upcoming: UpcomingPayment[], loading: boolean, reload: () => void }) {
+function UpcomingSection({ 
+  uid, 
+  upcoming, 
+  loading, 
+  reload, 
+  gbpRate 
+}: { 
+  uid?: string; 
+  upcoming: UpcomingPayment[]; 
+  loading: boolean; 
+  reload: () => void;
+  gbpRate: number;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<"GBP" | "INR">("GBP");
   const [dueDate, setDueDate] = useState(new Date().toISOString().split('T')[0]);
   const [category, setCategory] = useState("Bill");
   const [notes, setNotes] = useState("");
@@ -98,15 +152,34 @@ function UpcomingSection({ uid, upcoming, loading, reload }: { uid?: string, upc
   const pending = upcoming.filter(p => p.status === "pending").sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const paid = upcoming.filter(p => p.status === "paid").sort((a, b) => b.dueDate.localeCompare(a.dueDate));
 
+  const handleSwapCurrency = () => {
+    const next = currency === "GBP" ? "INR" : "GBP";
+    setCurrency(next);
+    if (amount && !isNaN(parseFloat(amount))) {
+      const val = parseFloat(amount);
+      if (next === "INR") {
+        setAmount((val * gbpRate).toFixed(0));
+      } else {
+        setAmount((val / gbpRate).toFixed(2));
+      }
+    }
+  };
+
   const resetForm = () => {
     setEditingId(null);
-    setName(""); setAmount(""); setDueDate(new Date().toISOString().split('T')[0]); setCategory("Bill"); setNotes("");
+    setName(""); 
+    setAmount(""); 
+    setCurrency("GBP");
+    setDueDate(new Date().toISOString().split('T')[0]); 
+    setCategory("Bill"); 
+    setNotes("");
   };
 
   const handleEdit = (p: UpcomingPayment) => {
     setEditingId(p.id);
     setName(p.payerName);
     setAmount(p.amount.toString());
+    setCurrency("GBP");
     setDueDate(p.dueDate);
     setCategory(p.category);
     setNotes(p.notes || "");
@@ -118,15 +191,16 @@ function UpcomingSection({ uid, upcoming, loading, reload }: { uid?: string, upc
     if (!uid) return;
     setIsSubmitting(true);
     try {
+      const raw = parseFloat(amount);
+      const finalAmount = currency === "INR" ? Number((raw / gbpRate).toFixed(2)) : raw;
       const input = {
         payerName: name,
-        amount: parseFloat(amount),
+        amount: finalAmount,
         dueDate,
         category,
         status: "pending" as const,
         notes
       };
-      
       if (editingId) {
         await updateUpcomingPayment(uid, editingId, input);
       } else {
@@ -174,8 +248,44 @@ function UpcomingSection({ uid, upcoming, loading, reload }: { uid?: string, upc
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label>Amount (£)</Label>
-                    <Input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required />
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="bill-amount">Amount ({currency === "GBP" ? "£" : "₹"})</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-1.5 text-[11px] flex items-center gap-1 border-orange-500/30 text-orange-700 dark:text-orange-300"
+                        onClick={handleSwapCurrency}
+                        title="Swap currency"
+                      >
+                        <ArrowLeftRight className="w-3 h-3" />
+                        <span>{currency === "GBP" ? "£→₹" : "₹→£"}</span>
+                      </Button>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-zinc-400">
+                        {currency === "GBP" ? "£" : "₹"}
+                      </span>
+                      <Input
+                        id="bill-amount"
+                        type="number"
+                        step={currency === "GBP" ? "0.01" : "1"}
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                        className="pl-7 pr-3"
+                        required
+                      />
+                    </div>
+                    {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && (
+                      <p className="text-[11px] text-zinc-500 flex items-center justify-between px-0.5">
+                        <span>Equivalent:</span>
+                        <span className="font-semibold text-orange-600 dark:text-orange-400">
+                          {currency === "GBP"
+                            ? `≈ ₹${Math.round(parseFloat(amount) * gbpRate).toLocaleString("en-IN")}`
+                            : `≈ £${(parseFloat(amount) / gbpRate).toFixed(2)}`}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <div className="grid gap-2">
                     <Label>Due Date</Label>
@@ -227,6 +337,7 @@ function UpcomingSection({ uid, upcoming, loading, reload }: { uid?: string, upc
                   </div>
                   <div className="text-right">
                     <div className="text-xl font-bold text-red-600">{formatMoney(p.amount)}</div>
+                    <div className="text-xs font-semibold text-zinc-500 mt-0.5">≈ {formatINR(p.amount, gbpRate)}</div>
                   </div>
                 </div>
                 <div className="mt-6 flex justify-end gap-2">
@@ -263,7 +374,10 @@ function UpcomingSection({ uid, upcoming, loading, reload }: { uid?: string, upc
                     <p className="text-xs text-zinc-500">Was due {formatDateUK(p.dueDate)}</p>
                   </div>
                 </div>
-                <div className="text-sm font-medium">{formatMoney(p.amount)}</div>
+                <div className="text-right">
+                  <div className="text-sm font-medium">{formatMoney(p.amount)}</div>
+                  <div className="text-[11px] text-zinc-400">≈ {formatINR(p.amount, gbpRate)}</div>
+                </div>
               </div>
             ))}
           </div>
@@ -273,11 +387,22 @@ function UpcomingSection({ uid, upcoming, loading, reload }: { uid?: string, upc
   );
 }
 
-function IncomingSection({ uid, incoming, reload }: { uid?: string, incoming: IncomingPayment[], reload: () => void }) {
+function IncomingSection({ 
+  uid, 
+  incoming, 
+  reload, 
+  gbpRate 
+}: { 
+  uid?: string; 
+  incoming: IncomingPayment[]; 
+  reload: () => void;
+  gbpRate: number;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [payer, setPayer] = useState("");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<"GBP" | "INR">("GBP");
   const [expectedDate, setExpectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -285,15 +410,33 @@ function IncomingSection({ uid, incoming, reload }: { uid?: string, incoming: In
   const expected = incoming.filter(p => p.status === "expected").sort((a, b) => a.expectedDate.localeCompare(b.expectedDate));
   const received = incoming.filter(p => p.status === "received").sort((a, b) => b.expectedDate.localeCompare(a.expectedDate));
 
+  const handleSwapCurrency = () => {
+    const next = currency === "GBP" ? "INR" : "GBP";
+    setCurrency(next);
+    if (amount && !isNaN(parseFloat(amount))) {
+      const val = parseFloat(amount);
+      if (next === "INR") {
+        setAmount((val * gbpRate).toFixed(0));
+      } else {
+        setAmount((val / gbpRate).toFixed(2));
+      }
+    }
+  };
+
   const resetForm = () => {
     setEditingId(null);
-    setPayer(""); setAmount(""); setExpectedDate(new Date().toISOString().split('T')[0]); setNotes("");
+    setPayer(""); 
+    setAmount(""); 
+    setCurrency("GBP");
+    setExpectedDate(new Date().toISOString().split('T')[0]); 
+    setNotes("");
   };
 
   const handleEdit = (p: IncomingPayment) => {
     setEditingId(p.id);
     setPayer(p.payerName);
     setAmount(p.amount.toString());
+    setCurrency("GBP");
     setExpectedDate(p.expectedDate);
     setNotes(p.notes || "");
     setIsOpen(true);
@@ -304,9 +447,11 @@ function IncomingSection({ uid, incoming, reload }: { uid?: string, incoming: In
     if (!uid) return;
     setIsSubmitting(true);
     try {
+      const raw = parseFloat(amount);
+      const finalAmount = currency === "INR" ? Number((raw / gbpRate).toFixed(2)) : raw;
       const input = {
         payerName: payer,
-        amount: parseFloat(amount),
+        amount: finalAmount,
         expectedDate,
         status: "expected" as const,
         notes
@@ -358,8 +503,44 @@ function IncomingSection({ uid, incoming, reload }: { uid?: string, incoming: In
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label>Amount (£)</Label>
-                    <Input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} required />
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="incoming-amount">Amount ({currency === "GBP" ? "£" : "₹"})</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-1.5 text-[11px] flex items-center gap-1 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                        onClick={handleSwapCurrency}
+                        title="Swap currency"
+                      >
+                        <ArrowLeftRight className="w-3 h-3" />
+                        <span>{currency === "GBP" ? "£→₹" : "₹→£"}</span>
+                      </Button>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-zinc-400">
+                        {currency === "GBP" ? "£" : "₹"}
+                      </span>
+                      <Input
+                        id="incoming-amount"
+                        type="number"
+                        step={currency === "GBP" ? "0.01" : "1"}
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                        className="pl-7 pr-3"
+                        required
+                      />
+                    </div>
+                    {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && (
+                      <p className="text-[11px] text-zinc-500 flex items-center justify-between px-0.5">
+                        <span>Equivalent:</span>
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                          {currency === "GBP"
+                            ? `≈ ₹${Math.round(parseFloat(amount) * gbpRate).toLocaleString("en-IN")}`
+                            : `≈ £${(parseFloat(amount) / gbpRate).toFixed(2)}`}
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <div className="grid gap-2">
                     <Label>Expected Date</Label>
@@ -392,7 +573,8 @@ function IncomingSection({ uid, incoming, reload }: { uid?: string, incoming: In
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xl font-bold text-emerald-600">{formatMoney(p.amount)}</div>
+                  <div className="text-xl font-bold text-emerald-600">+{formatMoney(p.amount)}</div>
+                  <div className="text-xs font-semibold text-zinc-500 mt-0.5">≈ {formatINR(p.amount, gbpRate)}</div>
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-2">
@@ -429,7 +611,10 @@ function IncomingSection({ uid, incoming, reload }: { uid?: string, incoming: In
                     <p className="text-xs text-zinc-500">Expected {formatDateUK(p.expectedDate)}</p>
                   </div>
                 </div>
-                <div className="text-sm font-medium">{formatMoney(p.amount)}</div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-emerald-600">+{formatMoney(p.amount)}</div>
+                  <div className="text-[11px] text-zinc-400">≈ {formatINR(p.amount, gbpRate)}</div>
+                </div>
               </div>
             ))}
           </div>

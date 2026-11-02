@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { updateSettings } from "../services/userService";
@@ -10,9 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { monthStatus, generateMotivation } from "../lib/calc";
-import { formatMoney } from "../lib/format";
+import { formatMoney, formatINR, formatDateUK, getStoredGbpRate, setStoredGbpRate } from "../lib/format";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { PoundSterling, TrendingUp, TrendingDown, Clock, PiggyBank, Calendar, Wallet, Landmark, Edit2 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
+import { PoundSterling, TrendingUp, TrendingDown, Clock, PiggyBank, Calendar, Wallet, Landmark, Edit2, AlertCircle, ArrowLeftRight, ChevronRight } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -69,13 +70,45 @@ function Index() {
 }
 
 function Dashboard({ user }: { user: any }) {
-  const { summary, settings, setSettings, loading } = useDashboardData();
+  const { summary, settings, setSettings, loading, error } = useDashboardData();
   const [isBankModalOpen, setIsBankModalOpen] = useState(false);
   const [bankBalanceInput, setBankBalanceInput] = useState("");
   const [isGoalsModalOpen, setIsGoalsModalOpen] = useState(false);
   const [hoursGoalInput, setHoursGoalInput] = useState("");
   const [earningsGoalInput, setEarningsGoalInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Present GBP Exchange Rate State
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const currentGbpRate = settings?.gbpToInrRate || getStoredGbpRate();
+  const [rateInput, setRateInput] = useState(currentGbpRate.toString());
+  const [isSavingRate, setIsSavingRate] = useState(false);
+
+  useEffect(() => {
+    if (settings?.gbpToInrRate) {
+      setStoredGbpRate(settings.gbpToInrRate);
+      setRateInput(settings.gbpToInrRate.toString());
+    }
+  }, [settings?.gbpToInrRate]);
+
+  const handleRateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.uid) return;
+    const parsed = parseFloat(rateInput);
+    if (isNaN(parsed) || parsed <= 0) return;
+
+    setIsSavingRate(true);
+    try {
+      await updateSettings(user.uid, { gbpToInrRate: parsed });
+      setStoredGbpRate(parsed);
+      if (settings && setSettings) setSettings({ ...settings, gbpToInrRate: parsed });
+      setIsRateModalOpen(false);
+    } catch (err) {
+      console.error("Failed to update GBP rate:", err);
+    } finally {
+      setIsSavingRate(false);
+    }
+  };
 
   const handleBankBalanceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,7 +164,23 @@ function Dashboard({ user }: { user: any }) {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Database Connection / Permission Issue</AlertTitle>
+          <AlertDescription className="space-y-1">
+            <p>{error.message || "Failed to load records from Firestore."}</p>
+            {error.message?.toLowerCase().includes("permission") && (
+              <p className="font-semibold text-xs mt-1">
+                Your Firebase Firestore security rules may have expired (the default 30-day Test Mode rule). Please update the rules in your Firebase Console.
+              </p>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Header with Greeting & Present GBP Price Button */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
             Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"},{" "}
@@ -139,9 +188,119 @@ function Dashboard({ user }: { user: any }) {
           </h1>
           <p className="text-lg text-zinc-500 mt-1">{monthStatus(summary.monthlyBalance)}</p>
         </div>
+
+        <div className="flex items-center gap-2">
+          <Dialog open={isRateModalOpen} onOpenChange={(o) => {
+            setIsRateModalOpen(o);
+            if (o) setRateInput(currentGbpRate.toString());
+          }}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-10 px-3.5 border-emerald-500/40 bg-emerald-50/60 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 flex items-center gap-2 font-semibold shadow-xs"
+              >
+                <ArrowLeftRight className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>1 GBP = ₹{currentGbpRate.toFixed(2)}</span>
+                <Edit2 className="w-3.5 h-3.5 opacity-60 ml-0.5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[400px]">
+              <form onSubmit={handleRateSubmit}>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <ArrowLeftRight className="w-5 h-5 text-emerald-600" />
+                    Present GBP Price
+                  </DialogTitle>
+                  <CardDescription>
+                    Set the present 1 GBP to INR price. All upcoming bills, expected income, savings, and earnings update automatically based on this rate.
+                  </CardDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="gbp-rate-input">Present Price of 1 GBP (₹)</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-zinc-400">₹</span>
+                      <Input
+                        id="gbp-rate-input"
+                        type="number"
+                        step="0.01"
+                        min="1"
+                        value={rateInput}
+                        onChange={(e) => setRateInput(e.target.value)}
+                        className="pl-7 pr-3 text-base font-bold"
+                        placeholder="e.g. 110.00"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                    <p className="text-xs text-zinc-400">
+                      Example: If £1 = ₹110.50, enter 110.50.
+                    </p>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setIsRateModalOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isSavingRate} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                    {isSavingRate ? "Updating..." : "Save Present Price"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Present GBP Price Quick Prompt Banner */}
+      <Card className="border-emerald-500/30 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent shadow-xs">
+        <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 flex items-center justify-center text-emerald-700 dark:text-emerald-300 shrink-0">
+              <ArrowLeftRight className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-sm">Present GBP Price (Exchange Rate)</h3>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200">
+                  Active: ₹{currentGbpRate.toFixed(2)}
+                </span>
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Set today's GBP price in INR. All upcoming bills, savings, work entries, and expenses sync to this rate.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleRateSubmit} className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-36">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-zinc-400">
+                ₹
+              </span>
+              <Input
+                type="number"
+                step="0.01"
+                min="1"
+                value={rateInput}
+                onChange={(e) => setRateInput(e.target.value)}
+                className="pl-7 pr-3 h-9 text-base font-bold bg-white dark:bg-zinc-900"
+                placeholder="110.00"
+                required
+              />
+            </div>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isSavingRate}
+              className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shrink-0"
+            >
+              {isSavingRate ? "Saving..." : "Update Rate"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 md:grid-cols-3">
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Monthly Earnings</CardTitle>
@@ -149,8 +308,11 @@ function Dashboard({ user }: { user: any }) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatMoney(summary.monthlyEarnings)}</div>
-            <p className="text-xs text-zinc-500 mt-1">
-              +{formatMoney(summary.todayEarnings)} today
+            <p className="text-xs text-zinc-500 mt-1 flex items-center justify-between">
+              <span>+{formatMoney(summary.todayEarnings)} today</span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                ≈ {formatINR(summary.monthlyEarnings, currentGbpRate)}
+              </span>
             </p>
           </CardContent>
         </Card>
@@ -162,20 +324,8 @@ function Dashboard({ user }: { user: any }) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatMoney(summary.monthlyExpenses)}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Current Balance</CardTitle>
-            <Wallet className="h-4 w-4 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${summary.monthlyBalance >= 0 ? "text-zinc-900 dark:text-zinc-50" : "text-red-600 dark:text-red-400"}`}>
-              {formatMoney(summary.monthlyBalance)}
-            </div>
             <p className="text-xs text-zinc-500 mt-1">
-              Projected: {formatMoney(summary.projectedBalance)}
+              ≈ {formatINR(summary.monthlyExpenses, currentGbpRate)}
             </p>
           </CardContent>
         </Card>
@@ -187,7 +337,12 @@ function Dashboard({ user }: { user: any }) {
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between">
-              <div className="text-2xl font-bold">{formatMoney(settings?.bankBalance || 0)}</div>
+              <div>
+                <div className="text-2xl font-bold">{formatMoney(settings?.bankBalance || 0)}</div>
+                <p className="text-xs text-zinc-500 mt-1">
+                  ≈ {formatINR(settings?.bankBalance || 0, currentGbpRate)}
+                </p>
+              </div>
               <Dialog open={isBankModalOpen} onOpenChange={(o) => {
                 setIsBankModalOpen(o);
                 if (o) setBankBalanceInput((settings?.bankBalance || 0).toString());
@@ -202,7 +357,7 @@ function Dashboard({ user }: { user: any }) {
                     <DialogHeader><DialogTitle>Update Bank Balance</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-4">
                       <div className="grid gap-2">
-                        <Label>Current Balance (£)</Label>
+                        <Label>Bank Balance (£)</Label>
                         <Input type="number" step="0.01" value={bankBalanceInput} onChange={e => setBankBalanceInput(e.target.value)} required />
                       </div>
                     </div>

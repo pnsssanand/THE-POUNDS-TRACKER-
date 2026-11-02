@@ -5,7 +5,7 @@ import { getSettings, updateSettings } from "../services/userService";
 import { getSavings, addSaving, updateSaving, deleteSaving } from "../services/savingsService";
 import type { Saving, UserSettings } from "../types";
 import { hashPin } from "../lib/pin";
-import { formatMoney, formatINR } from "../lib/format";
+import { formatMoney, formatINR, getStoredGbpRate } from "../lib/format";
 import { calculateTotalSavings } from "../lib/calc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -13,7 +13,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Lock, Unlock, ShieldCheck, Plus, Trash2, Wallet, RefreshCw, Edit2 } from "lucide-react";
+import { Lock, Unlock, ShieldCheck, Plus, Trash2, Wallet, RefreshCw, Edit2, ArrowLeftRight } from "lucide-react";
 
 export const Route = createFileRoute("/savings")({
   component: SavingsPage,
@@ -26,6 +26,8 @@ function SavingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [savings, setSavings] = useState<Saving[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const gbpRate = settings?.gbpToInrRate || getStoredGbpRate();
 
   // Vault state
   const [unlocked, setUnlocked] = useState(false);
@@ -40,6 +42,7 @@ function SavingsPage() {
   const [accountType, setAccountType] = useState<"cash" | "bank">("bank");
   const [accountName, setAccountName] = useState("");
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<"GBP" | "INR">("GBP");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const loadData = async () => {
@@ -95,9 +98,26 @@ function SavingsPage() {
     }
   };
 
+  const handleSwapCurrency = () => {
+    const next = currency === "GBP" ? "INR" : "GBP";
+    setCurrency(next);
+    if (amount && !isNaN(parseFloat(amount))) {
+      const val = parseFloat(amount);
+      if (next === "INR") {
+        setAmount((val * gbpRate).toFixed(0));
+      } else {
+        setAmount((val / gbpRate).toFixed(2));
+      }
+    }
+  };
+
   const resetForm = () => {
     setEditingId(null);
-    setName(""); setAccountType("bank"); setAccountName(""); setAmount("");
+    setName("");
+    setAccountType("bank");
+    setAccountName("");
+    setAmount("");
+    setCurrency("GBP");
   };
 
   const handleEdit = (s: Saving) => {
@@ -106,6 +126,7 @@ function SavingsPage() {
     setAccountType(s.accountType);
     setAccountName(s.accountName);
     setAmount(s.amount.toString());
+    setCurrency("GBP");
     setIsOpen(true);
   };
 
@@ -114,11 +135,13 @@ function SavingsPage() {
     if (!uid) return;
     setIsSubmitting(true);
     try {
+      const rawNum = parseFloat(amount);
+      const finalAmountGBP = currency === "INR" ? Number((rawNum / gbpRate).toFixed(2)) : rawNum;
       const input = {
         name,
         accountType,
         accountName,
-        amount: parseFloat(amount)
+        amount: finalAmountGBP
       };
       
       if (editingId) {
@@ -272,8 +295,48 @@ function SavingsPage() {
                     </div>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Amount (£)</Label>
-                    <Input type="number" step="0.01" min="0" value={amount} onChange={e => setAmount(e.target.value)} required />
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="savings-amount">
+                        Amount ({currency === "GBP" ? "£" : "₹"})
+                      </Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2.5 text-xs flex items-center gap-1.5 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                        onClick={handleSwapCurrency}
+                        title="Swap currency between GBP (£) and INR (₹)"
+                      >
+                        <ArrowLeftRight className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        <span className="font-semibold">{currency === "GBP" ? "£ GBP → ₹ INR" : "₹ INR → £ GBP"}</span>
+                      </Button>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-zinc-400">
+                        {currency === "GBP" ? "£" : "₹"}
+                      </span>
+                      <Input
+                        id="savings-amount"
+                        type="number"
+                        step={currency === "GBP" ? "0.01" : "1"}
+                        min="0"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="pl-7 pr-3"
+                        placeholder={currency === "GBP" ? "0.00" : "0"}
+                        required
+                      />
+                    </div>
+                    {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && (
+                      <p className="text-xs text-zinc-500 flex items-center justify-between px-0.5">
+                        <span>Equivalent:</span>
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                          {currency === "GBP"
+                            ? `≈ ₹${Math.round(parseFloat(amount) * gbpRate).toLocaleString("en-IN")}`
+                            : `≈ £${(parseFloat(amount) / gbpRate).toFixed(2)}`}
+                        </span>
+                      </p>
+                    )}
                   </div>
                 </div>
                 <DialogFooter>
@@ -291,6 +354,7 @@ function SavingsPage() {
           <Unlock className="w-8 h-8 text-emerald-400 mb-4 opacity-50" />
           <p className="text-emerald-200 font-medium mb-2 tracking-widest uppercase text-sm">Total Secured Savings</p>
           <h2 className="text-5xl md:text-6xl font-extrabold tracking-tight">{formatMoney(total)}</h2>
+          <p className="text-emerald-300 font-semibold mt-2 text-lg">≈ {formatINR(total, gbpRate)}</p>
         </CardContent>
       </Card>
 
