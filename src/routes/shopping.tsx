@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { toast } from "sonner";
 import {
   subscribeShoppingItems,
   addShoppingItem,
@@ -35,7 +36,10 @@ import {
   Tag, 
   Store,
   CheckCheck,
-  ShoppingBag
+  ShoppingBag,
+  RotateCcw,
+  X,
+  Undo2
 } from "lucide-react";
 import { cn } from "../lib/utils";
 
@@ -79,6 +83,50 @@ export function ShoppingPage() {
   const [checkoutPaymentMode, setCheckoutPaymentMode] = useState<"cash" | "card">("card");
   const [checkoutBank, setCheckoutBank] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+
+  // Undo State
+  const [lastAction, setLastAction] = useState<{
+    message: string;
+    undo: () => Promise<void>;
+  } | null>(null);
+  const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerUndoableAction = (message: string, undoFn: () => Promise<void>) => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setLastAction({ message, undo: undoFn });
+    undoTimerRef.current = setTimeout(() => {
+      setLastAction(null);
+    }, 10000);
+
+    toast(message, {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          try {
+            await undoFn();
+            setLastAction(null);
+            toast.success("Action undone!");
+          } catch (e) {
+            console.error("Failed to undo:", e);
+            toast.error("Failed to undo");
+          }
+        },
+      },
+      duration: 8000,
+    });
+  };
+
+  const handleExecuteUndo = async () => {
+    if (!lastAction) return;
+    try {
+      await lastAction.undo();
+      setLastAction(null);
+      toast.success("Action undone!");
+    } catch (err) {
+      console.error("Failed to undo:", err);
+      toast.error("Failed to undo action");
+    }
+  };
 
   useEffect(() => {
     if (!uid) return;
@@ -217,10 +265,26 @@ export function ShoppingPage() {
     setIsOpen(true);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (itemOrId: ShoppingItem | string) => {
     if (!uid) return;
+    const item = typeof itemOrId === "string" ? items.find((i) => i.id === itemOrId) : itemOrId;
+    if (!item) return;
+
+    const snapshot = { ...item };
     try {
-      await deleteShoppingItem(uid, id);
+      await deleteShoppingItem(uid, item.id);
+      triggerUndoableAction(`Deleted "${item.name}" from shopping cart`, async () => {
+        await addShoppingItem(uid, {
+          name: snapshot.name,
+          estimatedPrice: snapshot.estimatedPrice,
+          quantity: snapshot.quantity,
+          unit: snapshot.unit,
+          category: snapshot.category,
+          store: snapshot.store,
+          notes: snapshot.notes,
+          isBought: snapshot.isBought,
+        });
+      });
     } catch (err) {
       console.error("Failed to delete item:", err);
     }
@@ -228,8 +292,15 @@ export function ShoppingPage() {
 
   const handleToggleBought = async (item: ShoppingItem) => {
     if (!uid) return;
+    const wasBought = item.isBought;
     try {
-      await updateShoppingItem(uid, item.id, { isBought: !item.isBought });
+      await updateShoppingItem(uid, item.id, { isBought: !wasBought });
+      triggerUndoableAction(
+        wasBought ? `Moved "${item.name}" back to To-Buy list` : `Marked "${item.name}" as bought`,
+        async () => {
+          await updateShoppingItem(uid, item.id, { isBought: wasBought });
+        }
+      );
     } catch (err) {
       console.error("Failed to toggle item:", err);
     }
@@ -247,9 +318,26 @@ export function ShoppingPage() {
 
   const handleClearBought = async () => {
     if (!uid || boughtItems.length === 0) return;
-    if (confirm(`Remove all ${boughtItems.length} purchased items from cart?`)) {
+    const cleared = [...boughtItems];
+    if (confirm(`Remove all ${cleared.length} purchased items from cart?`)) {
       try {
-        await Promise.all(boughtItems.map((item) => deleteShoppingItem(uid, item.id)));
+        await Promise.all(cleared.map((item) => deleteShoppingItem(uid, item.id)));
+        triggerUndoableAction(`Cleared ${cleared.length} purchased items from cart`, async () => {
+          await Promise.all(
+            cleared.map((item) =>
+              addShoppingItem(uid, {
+                name: item.name,
+                estimatedPrice: item.estimatedPrice,
+                quantity: item.quantity,
+                unit: item.unit,
+                category: item.category,
+                store: item.store,
+                notes: item.notes,
+                isBought: true,
+              })
+            )
+          );
+        });
       } catch (err) {
         console.error("Failed to clear bought items:", err);
       }
@@ -777,7 +865,19 @@ export function ShoppingPage() {
                         )}
                       </div>
 
-                      <div className="flex items-center">
+                      <div className="flex items-center gap-1">
+                        {item.isBought && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleToggleBought(item)}
+                            className="h-7 px-2 text-xs border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                            title="Undo / Move back to to-buy list"
+                          >
+                            <RotateCcw className="w-3 h-3 mr-1" />
+                            Undo
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -790,7 +890,7 @@ export function ShoppingPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleDelete(item.id)}
+                          onClick={() => handleDelete(item)}
                           className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
                           title="Remove from cart"
                         >
@@ -907,6 +1007,30 @@ export function ShoppingPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Floating Undo Banner */}
+      {lastAction && (
+        <div className="fixed bottom-20 md:bottom-6 right-4 sm:right-8 z-50 animate-in slide-in-from-bottom-5 duration-300">
+          <div className="flex items-center gap-3 px-4 py-3 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 rounded-xl shadow-2xl border border-zinc-700/50 dark:border-zinc-300">
+            <RotateCcw className="w-4 h-4 text-emerald-400 dark:text-emerald-600 animate-spin-once" />
+            <span className="text-sm font-medium">{lastAction.message}</span>
+            <Button
+              size="sm"
+              onClick={handleExecuteUndo}
+              className="h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-sm"
+            >
+              Undo
+            </Button>
+            <button
+              onClick={() => setLastAction(null)}
+              className="text-zinc-400 hover:text-white dark:hover:text-zinc-900 p-0.5 ml-1"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

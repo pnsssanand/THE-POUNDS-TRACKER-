@@ -151,3 +151,29 @@ export interface DashboardSummary {
   totalSavings: number;
   projectedBalance: number;
 }
+
+export type TaskPriority = "low" | "medium" | "high";
+
+export type TaskCategory = 
+  | "General"
+  | "Work"
+  | "Personal"
+  | "Bills & Payments"
+  | "Shopping"
+  | "Study"
+  | "Health"
+  | "Urgent";
+
+export interface TodoTask {
+  id: string;
+  title: string;
+  description?: string | undefined;
+  dueDate: string; // YYYY-MM-DD
+  dueTime?: string | undefined; // HH:mm
+  priority: TaskPriority;
+  category: string;
+  status: "scheduled" | "completed";
+  completedAt?: string | undefined;
+  createdAt?: string | undefined;
+  updatedAt?: string | undefined;
+}

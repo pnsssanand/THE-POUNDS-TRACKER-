@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useAuth } from "../../contexts/AuthContext";
-import { Home, Briefcase, CreditCard, Receipt, PieChart, Wallet, User as UserIcon, ShoppingCart } from "lucide-react";
+import { Home, Briefcase, CreditCard, Receipt, PieChart, Wallet, User as UserIcon, ShoppingCart, CheckSquare } from "lucide-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, firebaseError } = useAuth();
@@ -68,6 +68,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     { name: "Work", href: "/work", icon: Briefcase },
     { name: "Expenses", href: "/expenses", icon: Receipt },
     { name: "Shopping", href: "/shopping", icon: ShoppingCart },
+    { name: "To-Do", href: "/todos", icon: CheckSquare },
     { name: "Payments", href: "/payments", icon: CreditCard },
     { name: "Savings", href: "/savings", icon: Wallet },
     { name: "Reports", href: "/reports", icon: PieChart },

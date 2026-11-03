@@ -18,6 +18,7 @@ import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as SavingsRouteImport } from './routes/savings'
 import { Route as ShoppingRouteImport } from './routes/shopping'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as TodosRouteImport } from './routes/todos'
 import { Route as WorkRouteImport } from './routes/work'
 
 const IndexRoute = IndexRouteImport.update({
@@ -65,6 +66,11 @@ const SignupRoute = SignupRouteImport.update({
   path: '/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TodosRoute = TodosRouteImport.update({
+  id: '/todos',
+  path: '/todos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WorkRoute = WorkRouteImport.update({
   id: '/work',
   path: '/work',
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/savings': typeof SavingsRoute
   '/shopping': typeof ShoppingRoute
   '/signup': typeof SignupRoute
+  '/todos': typeof TodosRoute
   '/work': typeof WorkRoute
 }
 export interface FileRoutesByTo {
@@ -93,6 +100,7 @@ export interface FileRoutesByTo {
   '/savings': typeof SavingsRoute
   '/shopping': typeof ShoppingRoute
   '/signup': typeof SignupRoute
+  '/todos': typeof TodosRoute
   '/work': typeof WorkRoute
 }
 export interface FileRoutesById {
@@ -106,6 +114,7 @@ export interface FileRoutesById {
   '/savings': typeof SavingsRoute
   '/shopping': typeof ShoppingRoute
   '/signup': typeof SignupRoute
+  '/todos': typeof TodosRoute
   '/work': typeof WorkRoute
 }
 export interface FileRouteTypes {
@@ -120,6 +129,7 @@ export interface FileRouteTypes {
     | '/savings'
     | '/shopping'
     | '/signup'
+    | '/todos'
     | '/work'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -132,6 +142,7 @@ export interface FileRouteTypes {
     | '/savings'
     | '/shopping'
     | '/signup'
+    | '/todos'
     | '/work'
   id:
     | '__root__'
@@ -144,6 +155,7 @@ export interface FileRouteTypes {
     | '/savings'
     | '/shopping'
     | '/signup'
+    | '/todos'
     | '/work'
   fileRoutesById: FileRoutesById
 }
@@ -157,6 +169,7 @@ export interface RootRouteChildren {
   SavingsRoute: typeof SavingsRoute
   ShoppingRoute: typeof ShoppingRoute
   SignupRoute: typeof SignupRoute
+  TodosRoute: typeof TodosRoute
   WorkRoute: typeof WorkRoute
 }
 
@@ -225,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/todos': {
+      id: '/todos'
+      path: '/todos'
+      fullPath: '/todos'
+      preLoaderRoute: typeof TodosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/work': {
       id: '/work'
       path: '/work'
@@ -245,6 +265,7 @@ const rootRouteChildren: RootRouteChildren = {
   SavingsRoute: SavingsRoute,
   ShoppingRoute: ShoppingRoute,
   SignupRoute: SignupRoute,
+  TodosRoute: TodosRoute,
   WorkRoute: WorkRoute,
 }
 export const routeTree = rootRouteImport
