@@ -55,11 +55,23 @@ export const deleteTask = (uid: string, id: string) =>
 export const toggleTaskComplete = async (
   uid: string,
   task: TodoTask,
+  completionNotes?: string,
 ) => {
   const isScheduled = task.status === "scheduled";
   return updateDocument(uid, NAME, task.id, {
     status: isScheduled ? "completed" : "scheduled",
     completedAt: isScheduled ? new Date().toISOString() : undefined,
+    completionNotes: isScheduled ? (completionNotes || undefined) : undefined,
+  });
+};
+
+export const updateTaskCompletionNotes = async (
+  uid: string,
+  id: string,
+  completionNotes: string,
+) => {
+  return updateDocument(uid, NAME, id, {
+    completionNotes: completionNotes.trim() || undefined,
   });
 };
 

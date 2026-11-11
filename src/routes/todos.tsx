@@ -8,44 +8,54 @@ import {
   updateTask,
   deleteTask,
   toggleTaskComplete,
+  updateTaskCompletionNotes,
   clearCompletedTasks,
   TASK_CATEGORIES,
   TASK_PRIORITIES,
   type TaskInput,
 } from "../services/taskService";
-import type { TodoTask, TaskPriority } from "../types";
+import {
+  subscribeWeeklyAvailability,
+  DEFAULT_WEEKLY_AVAILABILITY,
+  formatTime12h,
+} from "../services/availabilityService";
+import type { TodoTask, TaskPriority, WeeklyAvailability } from "../types";
 import { formatDateUK, todayISO } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
-import { 
-  CheckSquare, 
-  Square, 
-  Calendar, 
-  Clock, 
-  AlertTriangle, 
-  Plus, 
-  Trash2, 
-  Edit2, 
-  Search, 
-  Filter, 
-  CheckCircle2, 
-  Sparkles, 
+import {
+  CheckSquare,
+  Square,
+  Calendar,
+  Clock,
+  AlertTriangle,
+  Plus,
+  Trash2,
+  Edit2,
+  Search,
+  CheckCircle2,
+  Sparkles,
   RotateCcw,
-  ListTodo,
   CalendarDays,
   Flame,
   ArrowUpDown,
   X,
-  Undo2
+  Undo2,
+  Settings2,
+  FileText,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+
+import { AvailabilityModal } from "../components/todos/AvailabilityModal";
+import { ScheduleTaskModal } from "../components/todos/ScheduleTaskModal";
+import { WeeklyPlannerModal } from "../components/todos/WeeklyPlannerModal";
+import { AvailabilitySummary } from "../components/todos/AvailabilitySummary";
+import { CompleteTaskDialog } from "../components/todos/CompleteTaskDialog";
+import { ViewCompletedTaskDialog } from "../components/todos/ViewCompletedTaskDialog";
 
 export const Route = createFileRoute("/todos")({
   component: TodoListPage,
@@ -57,6 +67,24 @@ function TodoListPage() {
 
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Weekly availability state
+  const [availability, setAvailability] = useState<WeeklyAvailability>(
+    DEFAULT_WEEKLY_AVAILABILITY
+  );
+
+  // Modals state
+  const [isAvailabilityOpen, setIsAvailabilityOpen] = useState(false);
+  const [isPlannerOpen, setIsPlannerOpen] = useState(false);
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<TodoTask | null>(null);
+  const [completingTask, setCompletingTask] = useState<TodoTask | null>(null);
+  const [viewingCompletedTask, setViewingCompletedTask] = useState<TodoTask | null>(null);
+  const [schedulePreset, setSchedulePreset] = useState<{
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+  } | null>(null);
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState("");
@@ -73,17 +101,6 @@ function TodoListPage() {
   const [quickPriority, setQuickPriority] = useState<TaskPriority>("medium");
   const [quickCategory, setQuickCategory] = useState("General");
   const [isQuickAdding, setIsQuickAdding] = useState(false);
-
-  // Modal Dialog state
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [dueDate, setDueDate] = useState(todayISO());
-  const [dueTime, setDueTime] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [category, setCategory] = useState("General");
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Undo state
   const [lastAction, setLastAction] = useState<{
@@ -131,7 +148,7 @@ function TodoListPage() {
 
   const today = todayISO();
 
-  // Firestore subscription
+  // Firestore tasks subscription
   useEffect(() => {
     if (!uid) return;
     setLoading(true);
@@ -144,6 +161,21 @@ function TodoListPage() {
       (err) => {
         console.error("Failed to load tasks:", err);
         setLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [uid]);
+
+  // Firestore weekly availability subscription
+  useEffect(() => {
+    if (!uid) return;
+    const unsubscribe = subscribeWeeklyAvailability(
+      uid,
+      (av) => {
+        setAvailability(av);
+      },
+      (err) => {
+        console.error("Failed to load weekly availability:", err);
       }
     );
     return () => unsubscribe();
@@ -185,7 +217,9 @@ function TodoListPage() {
         if (sortBy === "dueDate") {
           const dateDiff = a.dueDate.localeCompare(b.dueDate);
           if (dateDiff !== 0) return dateDiff;
-          return (a.dueTime || "").localeCompare(b.dueTime || "");
+          const timeA = a.startTime || a.dueTime || "";
+          const timeB = b.startTime || b.dueTime || "";
+          return timeA.localeCompare(timeB);
         }
         if (sortBy === "priority") {
           const weights: Record<TaskPriority, number> = { high: 3, medium: 2, low: 1 };
@@ -195,9 +229,12 @@ function TodoListPage() {
       });
   };
 
-  const filteredScheduled = useMemo(() => filterAndSortTasks(scheduledTasks), [scheduledTasks, searchTerm, categoryFilter, priorityFilter, sortBy]);
+  const filteredScheduled = useMemo(
+    () => filterAndSortTasks(scheduledTasks),
+    [scheduledTasks, searchTerm, categoryFilter, priorityFilter, sortBy]
+  );
+
   const filteredCompleted = useMemo(() => {
-    // For completed, default sort by completedAt descending or updated date
     return completedTasks
       .filter((task) => {
         const matchesSearch =
@@ -210,58 +247,56 @@ function TodoListPage() {
       .sort((a, b) => (b.completedAt || b.dueDate).localeCompare(a.completedAt || a.dueDate));
   }, [completedTasks, searchTerm, categoryFilter, priorityFilter]);
 
-  // Form Reset
-  const resetForm = () => {
-    setEditingId(null);
-    setTitle("");
-    setDescription("");
-    setDueDate(todayISO());
-    setDueTime("");
-    setPriority("medium");
-    setCategory("General");
+  // Open Schedule Dialog for a brand new task
+  const handleOpenScheduleNew = (date?: string, startTime?: string, endTime?: string) => {
+    setEditingTask(null);
+    setSchedulePreset({
+      date: date || todayISO(),
+      startTime,
+      endTime,
+    });
+    setIsScheduleOpen(true);
   };
 
-  // Open Edit Dialog
+  // Open Edit Dialog for an existing task
   const handleEdit = (task: TodoTask) => {
-    setEditingId(task.id);
-    setTitle(task.title);
-    setDescription(task.description || "");
-    setDueDate(task.dueDate);
-    setDueTime(task.dueTime || "");
-    setPriority(task.priority);
-    setCategory(task.category || "General");
-    setIsDialogOpen(true);
+    setEditingTask(task);
+    setSchedulePreset(null);
+    setIsScheduleOpen(true);
   };
 
-  // Submit Add / Edit Modal
-  const handleSubmitModal = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!uid || !title.trim()) return;
+  // Save Task (Add or Update)
+  const handleSaveScheduledTask = async (taskData: {
+    title: string;
+    description?: string;
+    dueDate: string;
+    dueTime?: string;
+    startTime?: string;
+    endTime?: string;
+    priority: TaskPriority;
+    category: string;
+    status?: "scheduled" | "completed";
+  }) => {
+    if (!uid) return;
 
-    setIsSubmitting(true);
-    try {
-      const input: TaskInput = {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        dueDate,
-        dueTime: dueTime || undefined,
-        priority,
-        category,
-        status: editingId ? (tasks.find((t) => t.id === editingId)?.status || "scheduled") : "scheduled",
-      };
+    const input: TaskInput = {
+      title: taskData.title,
+      description: taskData.description,
+      dueDate: taskData.dueDate,
+      dueTime: taskData.startTime || taskData.dueTime,
+      startTime: taskData.startTime,
+      endTime: taskData.endTime,
+      priority: taskData.priority,
+      category: taskData.category,
+      status: taskData.status || "scheduled",
+    };
 
-      if (editingId) {
-        await updateTask(uid, editingId, input);
-      } else {
-        await addTask(uid, input);
-      }
-
-      setIsDialogOpen(false);
-      resetForm();
-    } catch (err) {
-      console.error("Failed to save task:", err);
-    } finally {
-      setIsSubmitting(false);
+    if (editingTask) {
+      await updateTask(uid, editingTask.id, input);
+      toast.success(`Task "${taskData.title}" updated successfully!`);
+    } else {
+      await addTask(uid, input);
+      toast.success(`Task "${taskData.title}" scheduled successfully!`);
     }
   };
 
@@ -280,31 +315,81 @@ function TodoListPage() {
         status: "scheduled",
       });
       setQuickTitle("");
+      toast.success(`Task "${quickTitle.trim()}" added!`);
     } catch (err) {
       console.error("Failed to quick add task:", err);
+      toast.error("Failed to add task");
     } finally {
       setIsQuickAdding(false);
     }
   };
 
-  // Toggle Complete / Scheduled with Undo
-  const handleToggle = async (task: TodoTask) => {
+  // Complete task flow: opens prompt for completion notes
+  const handleRequestComplete = (task: TodoTask) => {
+    if (task.status === "scheduled") {
+      setCompletingTask(task);
+    } else {
+      handleRestoreTask(task);
+    }
+  };
+
+  // Confirm complete with user notes
+  const handleConfirmCompleteTask = async (task: TodoTask, notes: string) => {
     if (!uid) return;
-    const wasScheduled = task.status === "scheduled";
     try {
-      await toggleTaskComplete(uid, task);
-      triggerUndoableAction(
-        wasScheduled ? `Completed "${task.title}"` : `Restored "${task.title}" to scheduled`,
-        async () => {
-          await updateTask(uid, task.id, {
-            status: wasScheduled ? "scheduled" : "completed",
-            completedAt: wasScheduled ? undefined : task.completedAt || new Date().toISOString(),
-          });
-        }
-      );
+      await toggleTaskComplete(uid, task, notes);
+      triggerUndoableAction(`Completed "${task.title}"`, async () => {
+        await updateTask(uid, task.id, {
+          status: "scheduled",
+          completedAt: undefined,
+          completionNotes: undefined,
+        });
+      });
+      toast.success(`Completed "${task.title}"! Notes saved to completed tasks.`);
     } catch (err) {
-      console.error("Failed to toggle task:", err);
-      toast.error("Failed to update task");
+      console.error("Failed to complete task:", err);
+      toast.error("Failed to complete task");
+    }
+  };
+
+  // Restore completed task back to scheduled
+  const handleRestoreTask = async (task: TodoTask) => {
+    if (!uid) return;
+    try {
+      const prevNotes = task.completionNotes;
+      const prevCompletedAt = task.completedAt;
+      await updateTask(uid, task.id, {
+        status: "scheduled",
+        completedAt: undefined,
+        completionNotes: undefined,
+      });
+      triggerUndoableAction(`Restored "${task.title}" to scheduled`, async () => {
+        await updateTask(uid, task.id, {
+          status: "completed",
+          completedAt: prevCompletedAt || new Date().toISOString(),
+          completionNotes: prevNotes,
+        });
+      });
+      toast.success(`Restored "${task.title}" to scheduled`);
+    } catch (err) {
+      console.error("Failed to restore task:", err);
+      toast.error("Failed to restore task");
+    }
+  };
+
+  // Update completion notes on an already completed task
+  const handleUpdateTaskNotes = async (taskId: string, notes: string) => {
+    if (!uid) return;
+    try {
+      await updateTaskCompletionNotes(uid, taskId, notes);
+      if (viewingCompletedTask && viewingCompletedTask.id === taskId) {
+        setViewingCompletedTask((prev) =>
+          prev ? { ...prev, completionNotes: notes.trim() || undefined } : null
+        );
+      }
+    } catch (err) {
+      console.error("Failed to update notes:", err);
+      throw err;
     }
   };
 
@@ -322,6 +407,8 @@ function TodoListPage() {
           description: snapshot.description,
           dueDate: snapshot.dueDate,
           dueTime: snapshot.dueTime,
+          startTime: snapshot.startTime,
+          endTime: snapshot.endTime,
           priority: snapshot.priority,
           category: snapshot.category,
           status: snapshot.status,
@@ -348,6 +435,8 @@ function TodoListPage() {
               description: t.description,
               dueDate: t.dueDate,
               dueTime: t.dueTime,
+              startTime: t.startTime,
+              endTime: t.endTime,
               priority: t.priority,
               category: t.category,
               status: "completed",
@@ -370,7 +459,7 @@ function TodoListPage() {
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold",
+          "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold",
           isOverdue
             ? "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-400 border border-red-200 dark:border-red-800"
             : isToday
@@ -380,12 +469,19 @@ function TodoListPage() {
       >
         <Calendar className="w-3 h-3" />
         <span>{isToday ? "Today" : formatDateUK(task.dueDate)}</span>
-        {task.dueTime && (
+
+        {task.startTime && task.endTime ? (
+          <span className="opacity-90 flex items-center gap-1 font-mono text-[11px] ml-1">
+            <Clock className="w-2.5 h-2.5" />
+            {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
+          </span>
+        ) : task.dueTime ? (
           <span className="opacity-80 flex items-center gap-0.5 ml-1">
             <Clock className="w-2.5 h-2.5" />
-            {task.dueTime}
+            {formatTime12h(task.dueTime)}
           </span>
-        )}
+        ) : null}
+
         {isOverdue && <span className="font-bold ml-1">(Overdue)</span>}
       </span>
     );
@@ -408,7 +504,7 @@ function TodoListPage() {
   };
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-7 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -418,144 +514,57 @@ function TodoListPage() {
               <CheckSquare className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-zinc-500 mt-1">
-            Organize your scheduled tasks and track your achievements.
+          <p className="text-zinc-500 mt-1 text-sm">
+            Manage your weekly availability, scheduled commitments, and productivity.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Dialog
-            open={isDialogOpen}
-            onOpenChange={(o) => {
-              setIsDialogOpen(o);
-              if (!o) resetForm();
-            }}
+        {/* Action Buttons: My Availability, Weekly Planner, Schedule Task */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setIsAvailabilityOpen(true)}
+            className="border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium text-xs h-9 flex-1 sm:flex-none"
           >
-            <DialogTrigger asChild>
-              <Button className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium flex-1 sm:flex-none">
-                <Plus className="w-4 h-4 mr-1.5" />
-                Schedule Task
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[480px]">
-              <form onSubmit={handleSubmitModal}>
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 text-lg">
-                    <ListTodo className="w-5 h-5 text-emerald-600" />
-                    {editingId ? "Edit Scheduled Task" : "Add Scheduled Task"}
-                  </DialogTitle>
-                  <CardDescription>
-                    Set task details, schedule due date/time, and priority level.
-                  </CardDescription>
-                </DialogHeader>
+            <Clock className="w-3.5 h-3.5 mr-1.5" />
+            My Availability
+          </Button>
 
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="task-title">Task Title *</Label>
-                    <Input
-                      id="task-title"
-                      placeholder="e.g. Pay utility bills or Submit timesheet"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      required
-                      autoFocus
-                    />
-                  </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setIsPlannerOpen(true)}
+            className="border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-medium text-xs h-9 flex-1 sm:flex-none"
+          >
+            <CalendarDays className="w-3.5 h-3.5 mr-1.5 text-zinc-600 dark:text-zinc-400" />
+            Weekly Planner
+          </Button>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                      <Label htmlFor="task-date">Due Date</Label>
-                      <Input
-                        id="task-date"
-                        type="date"
-                        value={dueDate}
-                        onChange={(e) => setDueDate(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="task-time">Due Time (Optional)</Label>
-                      <Input
-                        id="task-time"
-                        type="time"
-                        value={dueTime}
-                        onChange={(e) => setDueTime(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                      <Label>Priority</Label>
-                      <Select value={priority} onValueChange={(v: TaskPriority) => setPriority(v)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Priority" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="low">Low Priority</SelectItem>
-                          <SelectItem value="medium">Medium Priority</SelectItem>
-                          <SelectItem value="high">High Priority ⚡</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label>Category</Label>
-                      <Select value={category} onValueChange={setCategory}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {TASK_CATEGORIES.map((cat) => (
-                            <SelectItem key={cat} value={cat}>
-                              {cat}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label htmlFor="task-desc">Description / Notes (Optional)</Label>
-                    <Input
-                      id="task-desc"
-                      placeholder="Additional details, reference notes, links..."
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setIsDialogOpen(false);
-                      resetForm();
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={isSubmitting || !title.trim()}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
-                  >
-                    {isSubmitting ? "Saving..." : editingId ? "Update Task" : "Schedule Task"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <Button
+            type="button"
+            onClick={() => handleOpenScheduleNew()}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs h-9 flex-1 sm:flex-none shadow-xs"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            Schedule Task
+          </Button>
         </div>
       </div>
+
+      {/* 4. Availability Summary */}
+      <AvailabilitySummary
+        availability={availability}
+        tasks={tasks}
+        onOpenAvailability={() => setIsAvailabilityOpen(true)}
+        onOpenPlanner={() => setIsPlannerOpen(true)}
+        onScheduleTask={() => handleOpenScheduleNew()}
+      />
 
       {/* Metric Cards Row */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Scheduled Tasks */}
-        <Card className="shadow-sm border-l-4 border-l-emerald-500">
+        <Card className="shadow-xs border-l-4 border-l-emerald-500">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-zinc-500">Scheduled Tasks</CardTitle>
             <Clock className="w-4 h-4 text-emerald-600" />
@@ -574,7 +583,7 @@ function TodoListPage() {
         </Card>
 
         {/* Due Today & Overdue */}
-        <Card className="shadow-sm border-l-4 border-l-amber-500">
+        <Card className="shadow-xs border-l-4 border-l-amber-500">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-zinc-500">Due Today</CardTitle>
             <CalendarDays className="w-4 h-4 text-amber-500" />
@@ -597,7 +606,7 @@ function TodoListPage() {
         </Card>
 
         {/* High Priority Tasks */}
-        <Card className="shadow-sm border-l-4 border-l-red-500">
+        <Card className="shadow-xs border-l-4 border-l-red-500">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-zinc-500">High Priority</CardTitle>
             <Flame className="w-4 h-4 text-red-500" />
@@ -611,7 +620,7 @@ function TodoListPage() {
         </Card>
 
         {/* Completed Tasks & Progress */}
-        <Card className="shadow-sm border-l-4 border-l-indigo-500">
+        <Card className="shadow-xs border-l-4 border-l-indigo-500">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-zinc-500">Completed Tasks</CardTitle>
             <CheckCircle2 className="w-4 h-4 text-indigo-500" />
@@ -631,7 +640,7 @@ function TodoListPage() {
       </div>
 
       {/* Quick Add Bar */}
-      <Card className="border-emerald-500/20 bg-gradient-to-r from-emerald-50/40 via-emerald-50/10 to-transparent dark:from-emerald-950/20 dark:via-emerald-950/5 shadow-xs">
+      <Card className="border-emerald-500/20 bg-gradient-to-r from-emerald-50/40 via-emerald-50/10 to-transparent dark:from-emerald-950/20 dark:via-emerald-950/5 shadow-2xs">
         <CardContent className="p-4 sm:p-5">
           <form onSubmit={handleQuickAdd} className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
             <div className="relative flex-1">
@@ -780,7 +789,7 @@ function TodoListPage() {
               <p className="text-sm text-zinc-500 max-w-sm mx-auto">
                 {searchTerm || categoryFilter !== "all" || priorityFilter !== "all"
                   ? "Try adjusting your search query or filters."
-                  : "You're all caught up! Use the quick-add bar above or click 'Schedule Task' to add a new task."}
+                  : "You're all caught up! Click 'Schedule Task' to plan a task within your available hours."}
               </p>
             </div>
           ) : (
@@ -805,9 +814,9 @@ function TodoListPage() {
                       {/* Checkbox Complete Button */}
                       <button
                         type="button"
-                        onClick={() => handleToggle(task)}
+                        onClick={() => handleRequestComplete(task)}
                         className="mt-0.5 text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors shrink-0"
-                        title="Mark as completed"
+                        title="Select to mark completed and record notes"
                       >
                         <Square className="w-5 h-5 group-hover:scale-110 transition-transform" />
                       </button>
@@ -902,13 +911,13 @@ function TodoListPage() {
               {filteredCompleted.map((task) => (
                 <Card
                   key={task.id}
-                  className="shadow-xs border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 opacity-75 hover:opacity-100 transition-opacity"
+                  className="shadow-2xs border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 opacity-75 hover:opacity-100 transition-opacity"
                 >
                   <CardContent className="p-4 sm:p-5 flex items-start gap-3.5">
                     {/* Uncheck / Restore Button */}
                     <button
                       type="button"
-                      onClick={() => handleToggle(task)}
+                      onClick={() => handleRestoreTask(task)}
                       className="mt-0.5 text-emerald-600 hover:text-zinc-500 dark:text-emerald-400 transition-colors shrink-0"
                       title="Restore to scheduled"
                     >
@@ -918,7 +927,11 @@ function TodoListPage() {
                     {/* Task Info (Strikethrough) */}
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="font-semibold text-base line-through text-zinc-500 dark:text-zinc-400">
+                        <h4
+                          onClick={() => setViewingCompletedTask(task)}
+                          className="font-semibold text-base line-through text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+                          title="Click to view task details and completion notes"
+                        >
                           {task.title}
                         </h4>
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-medium">
@@ -934,12 +947,50 @@ function TodoListPage() {
 
                       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 pt-1">
                         <span>Due: {formatDateUK(task.dueDate)}</span>
+                        {task.startTime && task.endTime && (
+                          <span>
+                            · {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
+                          </span>
+                        )}
                         {task.completedAt && (
                           <span>
                             · Finished on {new Date(task.completedAt).toLocaleDateString("en-GB")}
                           </span>
                         )}
                       </div>
+
+                      {/* Display What I Have Done / Completion Notes */}
+                      {task.completionNotes ? (
+                        <div
+                          onClick={() => setViewingCompletedTask(task)}
+                          className="mt-2.5 p-3 rounded-lg bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80 cursor-pointer hover:bg-emerald-100/50 dark:hover:bg-emerald-900/40 transition-colors"
+                          title="Click to view or edit completion notes"
+                        >
+                          <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 mb-1">
+                            <span className="flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              What I Have Done:
+                            </span>
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal underline">
+                              View / Edit Notes
+                            </span>
+                          </div>
+                          <p className="whitespace-pre-wrap text-zinc-700 dark:text-zinc-300 text-xs leading-relaxed line-clamp-3">
+                            {task.completionNotes}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="pt-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setViewingCompletedTask(task)}
+                            className="text-xs text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center gap-1"
+                          >
+                            <FileText className="w-3 h-3" />
+                            + Add notes on what was done
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Actions */}
@@ -947,7 +998,17 @@ function TodoListPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleToggle(task)}
+                        onClick={() => setViewingCompletedTask(task)}
+                        className="h-8 text-xs text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/50 font-medium"
+                        title="View completion notes"
+                      >
+                        <FileText className="w-3.5 h-3.5 mr-1" />
+                        View Notes
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRestoreTask(task)}
                         className="h-8 text-xs text-zinc-600 hover:text-emerald-600"
                         title="Restore to scheduled"
                       >
@@ -981,7 +1042,7 @@ function TodoListPage() {
             <Button
               size="sm"
               onClick={handleExecuteUndo}
-              className="h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-sm"
+              className="h-7 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-xs"
             >
               Undo
             </Button>
@@ -995,6 +1056,65 @@ function TodoListPage() {
           </div>
         </div>
       )}
+
+      {/* 1. My Weekly Availability Modal */}
+      <AvailabilityModal
+        open={isAvailabilityOpen}
+        onOpenChange={setIsAvailabilityOpen}
+        uid={uid}
+        initialAvailability={availability}
+        onSaved={(newAv) => setAvailability(newAv)}
+      />
+
+      {/* 2. Schedule Task Modal (Enforces availability, prevents conflicts) */}
+      <ScheduleTaskModal
+        open={isScheduleOpen}
+        onOpenChange={setIsScheduleOpen}
+        availability={availability}
+        allTasks={tasks}
+        editingTask={editingTask}
+        defaultDate={schedulePreset?.date}
+        defaultStartTime={schedulePreset?.startTime}
+        defaultEndTime={schedulePreset?.endTime}
+        onSave={handleSaveScheduledTask}
+      />
+
+      {/* 3. Weekly Planner Modal */}
+      <WeeklyPlannerModal
+        open={isPlannerOpen}
+        onOpenChange={setIsPlannerOpen}
+        availability={availability}
+        tasks={tasks}
+        onScheduleSlot={(date, startTime, endTime) => {
+          handleOpenScheduleNew(date, startTime, endTime);
+        }}
+        onEditTask={(task) => handleEdit(task)}
+        onToggleTask={(task) => handleToggle(task)}
+        onCompleteTaskRequest={(task) => setCompletingTask(task)}
+        onViewCompletedTask={(task) => setViewingCompletedTask(task)}
+        onDeleteTask={(task) => handleDelete(task)}
+      />
+
+      {/* 4. Complete Task Dialog (Prompts for notes on what user did) */}
+      <CompleteTaskDialog
+        open={Boolean(completingTask)}
+        onOpenChange={(o) => {
+          if (!o) setCompletingTask(null);
+        }}
+        task={completingTask}
+        onConfirm={handleConfirmCompleteTask}
+      />
+
+      {/* 5. View Completed Task Dialog (View and edit completion notes) */}
+      <ViewCompletedTaskDialog
+        open={Boolean(viewingCompletedTask)}
+        onOpenChange={(o) => {
+          if (!o) setViewingCompletedTask(null);
+        }}
+        task={viewingCompletedTask}
+        onUpdateNotes={handleUpdateTaskNotes}
+        onRestoreTask={handleRestoreTask}
+      />
     </div>
   );
 }

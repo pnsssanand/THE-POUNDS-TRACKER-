@@ -170,10 +170,31 @@ export interface TodoTask {
   description?: string | undefined;
   dueDate: string; // YYYY-MM-DD
   dueTime?: string | undefined; // HH:mm
+  startTime?: string | undefined; // HH:mm
+  endTime?: string | undefined; // HH:mm
   priority: TaskPriority;
   category: string;
   status: "scheduled" | "completed";
   completedAt?: string | undefined;
+  completionNotes?: string | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }
+
+export type DayOfWeek =
+  | "Monday"
+  | "Tuesday"
+  | "Wednesday"
+  | "Thursday"
+  | "Friday"
+  | "Saturday"
+  | "Sunday";
+
+export interface TimeSlot {
+  id: string;
+  start: string; // "HH:mm" (24h)
+  end: string;   // "HH:mm" (24h)
+}
+
+export type WeeklyAvailability = Record<DayOfWeek, TimeSlot[]>;
+
