@@ -273,6 +273,8 @@ function TodoListPage() {
     dueTime?: string;
     startTime?: string;
     endTime?: string;
+    timeSlotId?: string;
+    timeSlotLabel?: string;
     priority: TaskPriority;
     category: string;
     status?: "scheduled" | "completed";
@@ -286,6 +288,8 @@ function TodoListPage() {
       dueTime: taskData.startTime || taskData.dueTime,
       startTime: taskData.startTime,
       endTime: taskData.endTime,
+      timeSlotId: taskData.timeSlotId,
+      timeSlotLabel: taskData.timeSlotLabel,
       priority: taskData.priority,
       category: taskData.category,
       status: taskData.status || "scheduled",
@@ -324,7 +328,7 @@ function TodoListPage() {
     }
   };
 
-  // Complete task flow: opens prompt for completion notes
+  // Complete task flow: opens prompt for completion notes and time taken
   const handleRequestComplete = (task: TodoTask) => {
     if (task.status === "scheduled") {
       setCompletingTask(task);
@@ -333,19 +337,22 @@ function TodoListPage() {
     }
   };
 
-  // Confirm complete with user notes
-  const handleConfirmCompleteTask = async (task: TodoTask, notes: string) => {
+  // Confirm complete with user notes and actual time taken
+  const handleConfirmCompleteTask = async (task: TodoTask, notes: string, actualHours: number) => {
     if (!uid) return;
     try {
-      await toggleTaskComplete(uid, task, notes);
+      await toggleTaskComplete(uid, task, notes, actualHours);
       triggerUndoableAction(`Completed "${task.title}"`, async () => {
         await updateTask(uid, task.id, {
           status: "scheduled",
           completedAt: undefined,
           completionNotes: undefined,
+          actualHours: undefined,
         });
       });
-      toast.success(`Completed "${task.title}"! Notes saved to completed tasks.`);
+      toast.success(
+        `Completed "${task.title}"! ${actualHours} hrs added to Completed Hours.`
+      );
     } catch (err) {
       console.error("Failed to complete task:", err);
       toast.error("Failed to complete task");
@@ -358,16 +365,19 @@ function TodoListPage() {
     try {
       const prevNotes = task.completionNotes;
       const prevCompletedAt = task.completedAt;
+      const prevActualHours = task.actualHours;
       await updateTask(uid, task.id, {
         status: "scheduled",
         completedAt: undefined,
         completionNotes: undefined,
+        actualHours: undefined,
       });
       triggerUndoableAction(`Restored "${task.title}" to scheduled`, async () => {
         await updateTask(uid, task.id, {
           status: "completed",
           completedAt: prevCompletedAt || new Date().toISOString(),
           completionNotes: prevNotes,
+          actualHours: prevActualHours,
         });
       });
       toast.success(`Restored "${task.title}" to scheduled`);
@@ -377,14 +387,20 @@ function TodoListPage() {
     }
   };
 
-  // Update completion notes on an already completed task
-  const handleUpdateTaskNotes = async (taskId: string, notes: string) => {
+  // Update completion notes & time on an already completed task
+  const handleUpdateTaskNotes = async (taskId: string, notes: string, actualHours?: number) => {
     if (!uid) return;
     try {
-      await updateTaskCompletionNotes(uid, taskId, notes);
+      await updateTaskCompletionNotes(uid, taskId, notes, actualHours);
       if (viewingCompletedTask && viewingCompletedTask.id === taskId) {
         setViewingCompletedTask((prev) =>
-          prev ? { ...prev, completionNotes: notes.trim() || undefined } : null
+          prev
+            ? {
+                ...prev,
+                completionNotes: notes.trim() || undefined,
+                actualHours: actualHours !== undefined ? actualHours : prev.actualHours,
+              }
+            : null
         );
       }
     } catch (err) {
@@ -470,7 +486,12 @@ function TodoListPage() {
         <Calendar className="w-3 h-3" />
         <span>{isToday ? "Today" : formatDateUK(task.dueDate)}</span>
 
-        {task.startTime && task.endTime ? (
+        {task.timeSlotLabel ? (
+          <span className="opacity-90 flex items-center gap-1 font-mono text-[11px] ml-1 bg-emerald-50/70 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 font-medium">
+            <Clock className="w-2.5 h-2.5" />
+            {task.timeSlotLabel}
+          </span>
+        ) : task.startTime && task.endTime ? (
           <span className="opacity-90 flex items-center gap-1 font-mono text-[11px] ml-1">
             <Clock className="w-2.5 h-2.5" />
             {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
@@ -947,11 +968,20 @@ function TodoListPage() {
 
                       <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 pt-1">
                         <span>Due: {formatDateUK(task.dueDate)}</span>
-                        {task.startTime && task.endTime && (
+                        {task.timeSlotLabel ? (
+                          <span>· Slot: {task.timeSlotLabel}</span>
+                        ) : task.startTime && task.endTime ? (
                           <span>
                             · {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
                           </span>
-                        )}
+                        ) : null}
+
+                        {task.actualHours !== undefined ? (
+                          <span className="font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950 px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1">
+                            ⏱️ Time taken: {task.actualHours} {task.actualHours === 1 ? "hr" : "hrs"}
+                          </span>
+                        ) : null}
+
                         {task.completedAt && (
                           <span>
                             · Finished on {new Date(task.completedAt).toLocaleDateString("en-GB")}

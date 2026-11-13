@@ -381,7 +381,11 @@ export function WeeklyPlannerModal({
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-1 text-[10px] pt-0.5">
-                                  {task.startTime && task.endTime ? (
+                                  {task.timeSlotLabel ? (
+                                    <span className="font-medium px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                      {task.timeSlotLabel}
+                                    </span>
+                                  ) : task.startTime && task.endTime ? (
                                     <span className="font-medium px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                                       {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
                                     </span>
@@ -439,6 +443,11 @@ export function WeeklyPlannerModal({
                                 </span>
                               </div>
                               <div className="flex items-center gap-1 shrink-0 ml-1">
+                                {task.actualHours !== undefined ? (
+                                  <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950 px-1 py-0.2 rounded border border-emerald-300 dark:border-emerald-800">
+                                    {task.actualHours}h
+                                  </span>
+                                ) : null}
                                 {task.completionNotes && (
                                   <button
                                     type="button"

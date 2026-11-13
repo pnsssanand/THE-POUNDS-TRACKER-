@@ -56,12 +56,14 @@ export const toggleTaskComplete = async (
   uid: string,
   task: TodoTask,
   completionNotes?: string,
+  actualHours?: number,
 ) => {
   const isScheduled = task.status === "scheduled";
   return updateDocument(uid, NAME, task.id, {
     status: isScheduled ? "completed" : "scheduled",
     completedAt: isScheduled ? new Date().toISOString() : undefined,
     completionNotes: isScheduled ? (completionNotes || undefined) : undefined,
+    actualHours: isScheduled ? (actualHours !== undefined ? actualHours : undefined) : undefined,
   });
 };
 
@@ -69,9 +71,11 @@ export const updateTaskCompletionNotes = async (
   uid: string,
   id: string,
   completionNotes: string,
+  actualHours?: number,
 ) => {
   return updateDocument(uid, NAME, id, {
     completionNotes: completionNotes.trim() || undefined,
+    ...(actualHours !== undefined ? { actualHours } : {}),
   });
 };
 

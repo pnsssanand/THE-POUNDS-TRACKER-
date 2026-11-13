@@ -380,12 +380,31 @@ export function calculateAdvancedWeeklyMetrics(
     const scheduledTasksDay = dayTasks.filter((t) => t.status === "scheduled");
     const completedTasksDay = dayTasks.filter((t) => t.status === "completed");
 
-    const dayScheduled = scheduledTasksDay.reduce((acc, t) => {
-      return acc + (t.startTime && t.endTime ? calculateSlotHours(t.startTime, t.endTime) : 1);
-    }, 0);
+    // Scheduled hours: calculate based on unique time slots committed on this day
+    const scheduledSlotKeys = new Set<string>();
+    let dayScheduledUntimed = 0;
+    for (const t of scheduledTasksDay) {
+      if (t.startTime && t.endTime) {
+        scheduledSlotKeys.add(`${t.startTime}-${t.endTime}`);
+      } else {
+        dayScheduledUntimed += 1;
+      }
+    }
+    let dayScheduled = dayScheduledUntimed;
+    for (const key of scheduledSlotKeys) {
+      const [s, e] = key.split("-");
+      dayScheduled += calculateSlotHours(s, e);
+    }
 
+    // Completed hours: sum of actual time taken entered by user when completing tasks
     const dayCompleted = completedTasksDay.reduce((acc, t) => {
-      return acc + (t.startTime && t.endTime ? calculateSlotHours(t.startTime, t.endTime) : 1);
+      if (t.actualHours !== undefined && t.actualHours > 0) {
+        return acc + t.actualHours;
+      }
+      if (t.startTime && t.endTime) {
+        return acc + calculateSlotHours(t.startTime, t.endTime);
+      }
+      return acc + 1;
     }, 0);
 
     totalScheduledHours += dayScheduled;

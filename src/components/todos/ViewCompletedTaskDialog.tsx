@@ -8,6 +8,7 @@ import {
   DialogDescription,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Badge } from "../ui/badge";
@@ -20,6 +21,7 @@ import {
   Save,
   Undo2,
   Check,
+  Timer,
 } from "lucide-react";
 import type { TodoTask } from "@/types";
 import { formatDateUK } from "../../lib/format";
@@ -31,7 +33,7 @@ interface ViewCompletedTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   task: TodoTask | null;
-  onUpdateNotes: (taskId: string, notes: string) => Promise<void>;
+  onUpdateNotes: (taskId: string, notes: string, actualHours?: number) => Promise<void>;
   onRestoreTask?: (task: TodoTask) => Promise<void>;
 }
 
@@ -44,11 +46,13 @@ export function ViewCompletedTaskDialog({
 }: ViewCompletedTaskDialogProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [notes, setNotes] = useState("");
+  const [actualHours, setActualHours] = useState<number>(1);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (open && task) {
       setNotes(task.completionNotes || "");
+      setActualHours(task.actualHours !== undefined ? task.actualHours : 1);
       setIsEditing(!task.completionNotes); // auto-enable edit if notes are empty
     }
   }, [open, task]);
@@ -68,15 +72,15 @@ export function ViewCompletedTaskDialog({
       })
     : "Completed";
 
-  const handleSaveNotes = async () => {
+  const handleSave = async () => {
     setIsSaving(true);
     try {
-      await onUpdateNotes(task.id, notes);
+      await onUpdateNotes(task.id, notes, actualHours);
       setIsEditing(false);
-      toast.success("Completion notes updated!");
+      toast.success("Completed task details updated!");
     } catch (err) {
       console.error("Failed to update notes:", err);
-      toast.error("Failed to update notes");
+      toast.error("Failed to update details");
     } finally {
       setIsSaving(false);
     }
@@ -91,7 +95,7 @@ export function ViewCompletedTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent className="sm:max-w-[560px] max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -132,7 +136,7 @@ export function ViewCompletedTaskDialog({
               {task.startTime && task.endTime ? (
                 <span className="inline-flex items-center gap-1 font-mono text-[11px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
                   <Clock className="w-3 h-3" />
-                  {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
+                  Slot: {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
                 </span>
               ) : task.dueTime ? (
                 <span className="inline-flex items-center gap-1 text-zinc-500">
@@ -141,7 +145,9 @@ export function ViewCompletedTaskDialog({
                 </span>
               ) : null}
 
-              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${priorityConfig.color}`}>
+              <span
+                className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${priorityConfig.color}`}
+              >
                 {task.priority}
               </span>
 
@@ -155,6 +161,48 @@ export function ViewCompletedTaskDialog({
                 <span className="font-medium text-zinc-500 block mb-0.5">Original Task Notes:</span>
                 <p className="whitespace-pre-wrap">{task.description}</p>
               </div>
+            )}
+          </div>
+
+          {/* Time Taken Box */}
+          <div className="p-3.5 rounded-xl border border-emerald-200/90 dark:border-emerald-800/80 bg-white dark:bg-zinc-900 shadow-2xs space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <Label className="font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 uppercase tracking-wide">
+                <Timer className="w-4 h-4 text-emerald-600" />
+                Time Taken to Complete
+              </Label>
+              {!isEditing && (
+                <Badge className="bg-emerald-600 text-white font-bold text-xs px-2.5 py-0.5">
+                  {task.actualHours !== undefined ? task.actualHours : 1}{" "}
+                  {(task.actualHours || 1) === 1 ? "hour" : "hours"}
+                </Badge>
+              )}
+            </div>
+
+            {isEditing ? (
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-xs text-zinc-500">Hours spent:</span>
+                <Input
+                  type="number"
+                  min="0.25"
+                  max="24"
+                  step="0.25"
+                  value={actualHours}
+                  onChange={(e) => setActualHours(Math.max(0.1, parseFloat(e.target.value) || 0))}
+                  className="h-8 w-28 text-xs font-semibold"
+                />
+                <span className="text-xs text-zinc-400">
+                  (Added directly into Completed Hours)
+                </span>
+              </div>
+            ) : (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                This task contributed{" "}
+                <strong className="text-emerald-700 dark:text-emerald-300 font-semibold">
+                  {task.actualHours !== undefined ? task.actualHours : 1} hours
+                </strong>{" "}
+                to your completed hours for this week.
+              </p>
             )}
           </div>
 
@@ -174,7 +222,7 @@ export function ViewCompletedTaskDialog({
                   className="h-7 text-xs text-emerald-700 hover:text-emerald-800 hover:bg-emerald-100/60 font-medium"
                 >
                   <Edit3 className="w-3.5 h-3.5 mr-1" />
-                  Edit Notes
+                  Edit Details
                 </Button>
               )}
             </div>
@@ -197,6 +245,7 @@ export function ViewCompletedTaskDialog({
                       size="sm"
                       onClick={() => {
                         setNotes(task.completionNotes || "");
+                        setActualHours(task.actualHours || 1);
                         setIsEditing(false);
                       }}
                       className="h-7 text-xs"
@@ -208,11 +257,11 @@ export function ViewCompletedTaskDialog({
                     type="button"
                     size="sm"
                     disabled={isSaving}
-                    onClick={handleSaveNotes}
+                    onClick={handleSave}
                     className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
                   >
                     <Save className="w-3.5 h-3.5 mr-1" />
-                    {isSaving ? "Saving..." : "Save Notes"}
+                    {isSaving ? "Saving..." : "Save Details"}
                   </Button>
                 </div>
               </div>
@@ -267,4 +316,3 @@ export function ViewCompletedTaskDialog({
     </Dialog>
   );
 }
-

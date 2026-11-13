@@ -172,6 +172,9 @@ export interface TodoTask {
   dueTime?: string | undefined; // HH:mm
   startTime?: string | undefined; // HH:mm
   endTime?: string | undefined; // HH:mm
+  timeSlotId?: string | undefined;
+  timeSlotLabel?: string | undefined;
+  actualHours?: number | undefined; // Time taken entered by user when completing task
   priority: TaskPriority;
   category: string;
   status: "scheduled" | "completed";

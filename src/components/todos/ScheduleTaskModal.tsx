@@ -21,18 +21,16 @@ import {
   Check,
   Sparkles,
   Info,
+  Layers,
 } from "lucide-react";
 import {
   getDayOfWeekFromDate,
-  isTimeSlotWithinAvailability,
-  findConflictingTasks,
   calculateSlotHours,
   formatTime12h,
   formatSlotLabel,
-  timeToMinutes,
 } from "../../services/availabilityService";
 import { TASK_CATEGORIES, TASK_PRIORITIES } from "../../services/taskService";
-import type { TodoTask, TaskPriority, WeeklyAvailability } from "@/types";
+import type { TodoTask, TaskPriority, WeeklyAvailability, TimeSlot } from "@/types";
 import { formatDateUK, todayISO } from "../../lib/format";
 
 interface ScheduleTaskModalProps {
@@ -51,6 +49,8 @@ interface ScheduleTaskModalProps {
     dueTime?: string;
     startTime?: string;
     endTime?: string;
+    timeSlotId?: string;
+    timeSlotLabel?: string;
     priority: TaskPriority;
     category: string;
     status?: "scheduled" | "completed";
@@ -71,54 +71,65 @@ export function ScheduleTaskModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(defaultDate || todayISO());
-  const [startTime, setStartTime] = useState(defaultStartTime || "");
-  const [endTime, setEndTime] = useState(defaultEndTime || "");
+  const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [category, setCategory] = useState("General");
-  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Derive day of week from current date selection
+  // Derive day of week from date selection
   const dayOfWeek = useMemo(() => getDayOfWeekFromDate(date), [date]);
   const availableSlotsForDay = useMemo(
     () => availability[dayOfWeek] || [],
     [availability, dayOfWeek]
   );
 
-  // Initialize or reset form when dialog opens or editingTask changes
+  // Initialize form state
   useEffect(() => {
     if (open) {
       if (editingTask) {
         setTitle(editingTask.title);
         setDescription(editingTask.description || "");
         setDate(editingTask.dueDate);
-        setStartTime(editingTask.startTime || editingTask.dueTime || "");
-        setEndTime(editingTask.endTime || "");
         setPriority(editingTask.priority);
         setCategory(editingTask.category || "General");
+
+        const day = getDayOfWeekFromDate(editingTask.dueDate);
+        const slots = availability[day] || [];
+        // Match slot by id or matching start/end
+        const matched = slots.find(
+          (s) =>
+            s.id === editingTask.timeSlotId ||
+            (s.start === editingTask.startTime && s.end === editingTask.endTime)
+        );
+        if (matched) {
+          setSelectedSlotId(matched.id);
+        } else if (slots.length > 0) {
+          setSelectedSlotId(slots[0].id);
+        } else {
+          setSelectedSlotId("");
+        }
       } else {
         const initialDate = defaultDate || todayISO();
         setDate(initialDate);
         const day = getDayOfWeekFromDate(initialDate);
         const slots = availability[day] || [];
 
+        // If pre-filled start/end passed, match slot
         if (defaultStartTime && defaultEndTime) {
-          setStartTime(defaultStartTime);
-          setEndTime(defaultEndTime);
-        } else if (slots.length > 0) {
-          // Pre-fill with first slot or 1 hour within first slot
-          const firstSlot = slots[0];
-          setStartTime(firstSlot.start);
-          const firstEndMin = Math.min(
-            timeToMinutes(firstSlot.end),
-            timeToMinutes(firstSlot.start) + 60
+          const matched = slots.find(
+            (s) => s.start === defaultStartTime && s.end === defaultEndTime
           );
-          const endH = Math.floor(firstEndMin / 60);
-          const endM = firstEndMin % 60;
-          setEndTime(`${endH.toString().padStart(2, "0")}:${endM.toString().padStart(2, "0")}`);
+          if (matched) {
+            setSelectedSlotId(matched.id);
+          } else if (slots.length > 0) {
+            setSelectedSlotId(slots[0].id);
+          } else {
+            setSelectedSlotId("");
+          }
+        } else if (slots.length > 0) {
+          setSelectedSlotId(slots[0].id);
         } else {
-          setStartTime("");
-          setEndTime("");
+          setSelectedSlotId("");
         }
 
         setTitle("");
@@ -126,87 +137,63 @@ export function ScheduleTaskModal({
         setPriority("medium");
         setCategory("General");
       }
-      setSelectedSlotIndex(null);
     }
   }, [open, editingTask, defaultDate, defaultStartTime, defaultEndTime, availability]);
 
-  // When date changes (and user didn't pre-fill custom start/end), suggest available slot
+  // When date changes, automatically pick the first available slot for that day
   const handleDateChange = (newDate: string) => {
     setDate(newDate);
     const newDay = getDayOfWeekFromDate(newDate);
     const slots = availability[newDay] || [];
     if (slots.length > 0) {
-      const slot = slots[0];
-      setStartTime(slot.start);
-      const endMin = Math.min(timeToMinutes(slot.end), timeToMinutes(slot.start) + 60);
-      const endH = Math.floor(endMin / 60);
-      const endM = endMin % 60;
-      setEndTime(`${endH.toString().padStart(2, "0")}:${endM.toString().padStart(2, "0")}`);
-      setSelectedSlotIndex(0);
+      setSelectedSlotId(slots[0].id);
     } else {
-      setStartTime("");
-      setEndTime("");
-      setSelectedSlotIndex(null);
+      setSelectedSlotId("");
     }
   };
 
-  // Choose an available slot preset
-  const handleSelectSlot = (idx: number) => {
-    setSelectedSlotIndex(idx);
-    const slot = availableSlotsForDay[idx];
-    if (slot) {
-      setStartTime(slot.start);
-      setEndTime(slot.end);
-    }
-  };
+  // Currently selected slot object
+  const currentSlot: TimeSlot | undefined = useMemo(() => {
+    return availableSlotsForDay.find((s) => s.id === selectedSlotId);
+  }, [availableSlotsForDay, selectedSlotId]);
 
-  // Validations
-  const durationHours = useMemo(
-    () => calculateSlotHours(startTime, endTime),
-    [startTime, endTime]
-  );
+  // Count other tasks already scheduled in this time slot on this date
+  const otherTasksInSameSlot = useMemo(() => {
+    if (!currentSlot) return [];
+    return allTasks.filter(
+      (t) =>
+        t.id !== editingTask?.id &&
+        t.status === "scheduled" &&
+        t.dueDate === date &&
+        (t.timeSlotId === currentSlot.id ||
+          (t.startTime === currentSlot.start && t.endTime === currentSlot.end))
+    );
+  }, [allTasks, editingTask, date, currentSlot]);
 
-  const isTimeOrderValid = useMemo(() => {
-    if (!startTime || !endTime) return true;
-    return timeToMinutes(startTime) < timeToMinutes(endTime);
-  }, [startTime, endTime]);
-
-  const isWithinAvailability = useMemo(() => {
-    if (!startTime || !endTime) return false;
-    return isTimeSlotWithinAvailability(startTime, endTime, availableSlotsForDay);
-  }, [startTime, endTime, availableSlotsForDay]);
-
-  const conflictingTasks = useMemo(() => {
-    if (!date || !startTime || !endTime || !isTimeOrderValid) return [];
-    return findConflictingTasks(allTasks, date, startTime, endTime, editingTask?.id);
-  }, [allTasks, date, startTime, endTime, isTimeOrderValid, editingTask]);
-
-  const hasConflicts = conflictingTasks.length > 0;
-
-  // Form validity check
+  // Form validity: needs Title, Date, and an Available Time Slot
   const isFormValid =
     title.trim().length > 0 &&
     date.length > 0 &&
-    startTime.length > 0 &&
-    endTime.length > 0 &&
-    isTimeOrderValid &&
-    isWithinAvailability &&
-    !hasConflicts &&
+    Boolean(currentSlot) &&
+    availableSlotsForDay.length > 0 &&
     !isSubmitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isFormValid) return;
+    if (!isFormValid || !currentSlot) return;
 
     setIsSubmitting(true);
     try {
+      const slotLabel = formatSlotLabel(currentSlot.start, currentSlot.end);
       await onSave({
         title: title.trim(),
         description: description.trim() || undefined,
         dueDate: date,
-        dueTime: startTime,
-        startTime,
-        endTime,
+        dueTime: currentSlot.start,
+        startTime: currentSlot.start,
+        endTime: currentSlot.end,
+        timeSlotId: currentSlot.id,
+        timeSlotLabel: slotLabel,
         priority,
         category,
         status: editingTask ? editingTask.status : "scheduled",
@@ -221,7 +208,7 @@ export function ScheduleTaskModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
         <form onSubmit={handleSubmit} className="space-y-4">
           <DialogHeader>
             <div className="flex items-center gap-2">
@@ -233,7 +220,7 @@ export function ScheduleTaskModal({
                   {editingTask ? "Edit Scheduled Task" : "Schedule Task"}
                 </DialogTitle>
                 <DialogDescription className="text-xs text-zinc-500">
-                  Schedule tasks exclusively within your configured weekly available hours.
+                  Select an available time slot and add tasks. Multiple tasks can share the same time slot.
                 </DialogDescription>
               </div>
             </div>
@@ -289,16 +276,16 @@ export function ScheduleTaskModal({
               </div>
             </div>
 
-            {/* Available Time Slots for this day */}
-            <div className="space-y-1.5 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">
+            {/* Time Slot Selection (Replaces manual Start & End Time) */}
+            <div className="space-y-2 p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">
               <div className="flex items-center justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                 <span className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                  Available Hours on {dayOfWeek}:
+                  Select Available Time Slot *
                 </span>
-                {availableSlotsForDay.length === 0 && (
-                  <span className="text-amber-600 dark:text-amber-400 font-normal">
-                    No slots configured
+                {currentSlot && (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium text-[11px]">
+                    {calculateSlotHours(currentSlot.start, currentSlot.end)} hrs window
                   </span>
                 )}
               </div>
@@ -307,127 +294,83 @@ export function ScheduleTaskModal({
                 <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-lg border border-amber-200 dark:border-amber-800 flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>
-                    You have no available hours scheduled on <strong>{dayOfWeek}</strong>. Please
-                    configure slots in <strong>My Availability</strong> or pick another date.
+                    No availability scheduled on <strong>{dayOfWeek}</strong>. Configure your
+                    hours in <strong>My Availability</strong> or select another date.
                   </span>
                 </div>
               ) : (
-                <div className="space-y-1.5 pt-1">
-                  <p className="text-[11px] text-zinc-500">
-                    Click a slot to quickly set start and end time:
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {availableSlotsForDay.map((slot, idx) => (
-                      <button
-                        type="button"
-                        key={slot.id || idx}
-                        onClick={() => handleSelectSlot(idx)}
-                        className={`text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-all ${
-                          selectedSlotIndex === idx
-                            ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
-                            : "bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-emerald-500"
-                        }`}
-                      >
-                        {formatSlotLabel(slot.start, slot.end)}
-                      </button>
-                    ))}
+                <div className="space-y-2 pt-1">
+                  <div className="grid gap-2">
+                    {availableSlotsForDay.map((slot) => {
+                      const isSelected = slot.id === selectedSlotId;
+                      const hours = calculateSlotHours(slot.start, slot.end);
+                      const tasksCount = allTasks.filter(
+                        (t) =>
+                          t.status === "scheduled" &&
+                          t.dueDate === date &&
+                          (t.timeSlotId === slot.id ||
+                            (t.startTime === slot.start && t.endTime === slot.end))
+                      ).length;
+
+                      return (
+                        <div
+                          key={slot.id}
+                          onClick={() => setSelectedSlotId(slot.id)}
+                          className={`p-2.5 rounded-lg border cursor-pointer transition-all flex items-center justify-between ${
+                            isSelected
+                              ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 ring-1 ring-emerald-500/20 text-emerald-900 dark:text-emerald-200"
+                              : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 text-zinc-800 dark:text-zinc-200"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                                isSelected
+                                  ? "border-emerald-600 bg-emerald-600 text-white"
+                                  : "border-zinc-400 dark:border-zinc-600"
+                              }`}
+                            >
+                              {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                            </div>
+                            <span className="text-xs font-semibold">
+                              {formatTime12h(slot.start)} – {formatTime12h(slot.end)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {tasksCount > 0 && (
+                              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 flex items-center gap-1">
+                                <Layers className="w-3 h-3 text-zinc-500" />
+                                {tasksCount} {tasksCount === 1 ? "task" : "tasks"}
+                              </span>
+                            )}
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] bg-zinc-200/70 dark:bg-zinc-800"
+                            >
+                              {hours} {hours === 1 ? "hour" : "hours"}
+                            </Badge>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+
+                  {/* Informative message about multiple tasks */}
+                  {otherTasksInSameSlot.length > 0 && (
+                    <div className="p-2 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-300">
+                      <Layers className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                      <span>
+                        {otherTasksInSameSlot.length} other{" "}
+                        {otherTasksInSameSlot.length === 1 ? "task is" : "tasks are"} scheduled in
+                        this time slot. When you complete each task, you can enter the exact time
+                        it took.
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-
-            {/* Start and End Time inputs */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="sched-start" className="text-xs font-semibold">
-                  Start Time *
-                </Label>
-                <Input
-                  id="sched-start"
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => {
-                    setStartTime(e.target.value);
-                    setSelectedSlotIndex(null);
-                  }}
-                  required
-                  className="h-9 text-sm font-mono"
-                />
-              </div>
-
-              <div className="grid gap-1.5">
-                <Label htmlFor="sched-end" className="text-xs font-semibold">
-                  End Time *
-                </Label>
-                <Input
-                  id="sched-end"
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => {
-                    setEndTime(e.target.value);
-                    setSelectedSlotIndex(null);
-                  }}
-                  required
-                  className="h-9 text-sm font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Duration and Validation Alerts */}
-            {startTime && endTime && (
-              <div className="space-y-2">
-                {/* Duration Tag */}
-                <div className="flex items-center justify-between text-xs px-1">
-                  <span className="text-zinc-500">Calculated Task Duration:</span>
-                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                    {durationHours > 0
-                      ? `${durationHours} ${durationHours === 1 ? "hour" : "hours"} (${formatTime12h(startTime)} – ${formatTime12h(endTime)})`
-                      : "Invalid time range"}
-                  </span>
-                </div>
-
-                {/* Time order validation */}
-                {!isTimeOrderValid && (
-                  <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>Start time must be earlier than End time.</span>
-                  </div>
-                )}
-
-                {/* Outside availability alert */}
-                {isTimeOrderValid && !isWithinAvailability && (
-                  <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
-                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <div>
-                      <strong>Outside available hours:</strong> {formatTime12h(startTime)} –{" "}
-                      {formatTime12h(endTime)} must fall strictly within your configured available
-                      window for {dayOfWeek} (
-                      {availableSlotsForDay.length > 0
-                        ? availableSlotsForDay
-                            .map((s) => `${formatTime12h(s.start)}–${formatTime12h(s.end)}`)
-                            .join(", ")
-                        : "No available hours"}
-                      ).
-                    </div>
-                  </div>
-                )}
-
-                {/* Conflict Alert */}
-                {hasConflicts && (
-                  <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 flex items-start gap-2 text-xs text-red-700 dark:text-red-400">
-                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <div>
-                      <strong>Scheduling Conflict:</strong> This time overlaps with an existing
-                      task on this date:{" "}
-                      <span className="font-semibold">"{conflictingTasks[0].title}"</span> (
-                      {formatTime12h(conflictingTasks[0].startTime!)} –{" "}
-                      {formatTime12h(conflictingTasks[0].endTime!)}). Please choose a different
-                      time.
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Priority & Category */}
             <div className="grid grid-cols-2 gap-3 pt-1">
@@ -505,4 +448,3 @@ export function ScheduleTaskModal({
     </Dialog>
   );
 }
-
