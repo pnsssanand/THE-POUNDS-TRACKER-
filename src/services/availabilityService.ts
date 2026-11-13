@@ -151,6 +151,26 @@ export interface FreeSlot {
   hours: number;
 }
 
+/** Helper to merge overlapping minute intervals [start, end] */
+export function mergeIntervals(
+  intervals: Array<{ start: number; end: number }>
+): Array<{ start: number; end: number }> {
+  if (intervals.length === 0) return [];
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [{ ...sorted[0] }];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i];
+    const last = merged[merged.length - 1];
+    if (cur.start <= last.end) {
+      last.end = Math.max(last.end, cur.end);
+    } else {
+      merged.push({ ...cur });
+    }
+  }
+  return merged;
+}
+
 /**
  * Calculate remaining free time slots within the day's available windows
  * by subtracting any scheduled task intervals.
@@ -221,49 +241,50 @@ export interface WeekDayInfo {
 }
 
 /**
- * Get 7 days for the week containing referenceDateStr (or current UK date),
- * from Monday to Sunday.
+ * Get 7 days for the week containing referenceDateStr (or current UK/GMT date),
+ * from Monday to Sunday strictly calculated in GMT.
+ * This guarantees that every Monday at 00:00:00 GMT, the week automatically advances and resets.
  */
 export function getUKWeekDays(referenceDateStr?: string): {
   startOfWeekISO: string;
   endOfWeekISO: string;
   days: WeekDayInfo[];
 } {
-  let refDate: Date;
+  let dateISO: string;
   if (referenceDateStr) {
-    const [y, m, d] = referenceDateStr.split("-").map(Number);
-    refDate = new Date(y, m - 1, d);
+    dateISO = referenceDateStr;
   } else {
-    refDate = new Date();
+    dateISO = getGMTDateParts(new Date()).dateISO;
   }
 
-  const dayOfWeek = refDate.getDay(); // 0 is Sunday, 1 is Monday ...
-  // Diff to get to Monday of this week:
-  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  // Parse YYYY-MM-DD
+  const [y, m, d] = dateISO.split("-").map(Number);
+  // Create UTC noon date to completely prevent timezone shift issues
+  const utcDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
 
-  const monday = new Date(refDate);
-  monday.setDate(refDate.getDate() + diffToMonday);
+  // In UTC: getUTCDay(): 0 is Sunday, 1 is Monday ... 6 is Saturday
+  const utcDay = utcDate.getUTCDay();
+  // Difference to get to Monday of this week:
+  const diffToMonday = utcDay === 0 ? -6 : 1 - utcDay;
 
-  const todayStr = (() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  })();
+  const mondayUTC = new Date(utcDate);
+  mondayUTC.setUTCDate(utcDate.getUTCDate() + diffToMonday);
+
+  const todayGMTISO = getGMTDateParts(new Date()).dateISO;
 
   const days: WeekDayInfo[] = [];
 
   for (let i = 0; i < 7; i++) {
-    const cur = new Date(monday);
-    cur.setDate(monday.getDate() + i);
+    const cur = new Date(mondayUTC);
+    cur.setUTCDate(mondayUTC.getUTCDate() + i);
 
-    const y = cur.getFullYear();
-    const m = String(cur.getMonth() + 1).padStart(2, "0");
-    const d = String(cur.getDate()).padStart(2, "0");
-    const dateStr = `${y}-${m}-${d}`;
+    const cy = cur.getUTCFullYear();
+    const cm = String(cur.getUTCMonth() + 1).padStart(2, "0");
+    const cd = String(cur.getUTCDate()).padStart(2, "0");
+    const curISO = `${cy}-${cm}-${cd}`;
 
     const formattedDate = cur.toLocaleDateString("en-GB", {
+      timeZone: "GMT",
       day: "numeric",
       month: "short",
     });
@@ -272,9 +293,9 @@ export function getUKWeekDays(referenceDateStr?: string): {
 
     days.push({
       dayName,
-      dateStr,
+      dateStr: curISO,
       formattedDate,
-      isToday: dateStr === todayStr,
+      isToday: curISO === todayGMTISO,
     });
   }
 
@@ -285,14 +306,14 @@ export function getUKWeekDays(referenceDateStr?: string): {
   };
 }
 
-/** Helper to shift a date by N weeks */
+/** Helper to shift a date by N weeks in UTC */
 export function shiftWeekDate(referenceDateStr: string, weeksDiff: number): string {
   const [y, m, d] = referenceDateStr.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + weeksDiff * 7);
-  const ry = date.getFullYear();
-  const rm = String(date.getMonth() + 1).padStart(2, "0");
-  const rd = String(date.getDate()).padStart(2, "0");
+  const date = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  date.setUTCDate(date.getUTCDate() + weeksDiff * 7);
+  const ry = date.getUTCFullYear();
+  const rm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const rd = String(date.getUTCDate()).padStart(2, "0");
   return `${ry}-${rm}-${rd}`;
 }
 
@@ -351,8 +372,10 @@ export interface AdvancedWeeklyMetrics {
 
 /**
  * Calculates weekly hours considering past vs remaining days in the week:
- * - Hours on past days that were not scheduled/completed are counted as WASTED.
- * - Remaining hours only counts the free hours available from today onwards to end of week (Sunday).
+ * - Updates continuously and hourly based on current Greenwich Mean Time (GMT).
+ * - Hours on past days (or elapsed hours of today's slots) that went unscheduled are counted as WASTED.
+ * - Remaining hours only counts the free hours available from right now to end of week (Sunday 23:59 GMT).
+ * - Resets every Monday at 00:00:00 GMT automatically when the new week begins.
  */
 export function calculateAdvancedWeeklyMetrics(
   availability: WeeklyAvailability,
@@ -410,77 +433,115 @@ export function calculateAdvancedWeeklyMetrics(
     totalScheduledHours += dayScheduled;
     totalCompletedHours += dayCompleted;
 
+    // Collect all task intervals on this day to accurately measure covered vs uncovered time
+    const rawTaskIntervals = dayTasks
+      .filter((t) => t.startTime && t.endTime)
+      .map((t) => ({
+        start: timeToMinutes(t.startTime!),
+        end: timeToMinutes(t.endTime!),
+      }))
+      .filter((inv) => inv.start < inv.end);
+
+    const mergedTaskIntervals = mergeIntervals(rawTaskIntervals);
+
     if (day.dateStr < todayISO) {
       // Past day: all hours on this day have passed
       pastAvailableHours += dayAvail;
-      const dayUtilized = dayScheduled + dayCompleted;
-      const wasted = Math.max(0, dayAvail - dayUtilized);
+      // Hours utilized = non-overlapping task intervals within available slots
+      let coveredDayMinutes = 0;
+      for (const slot of daySlots) {
+        const sStart = timeToMinutes(slot.start);
+        const sEnd = timeToMinutes(slot.end);
+        for (const inv of mergedTaskIntervals) {
+          const overlapStart = Math.max(sStart, inv.start);
+          const overlapEnd = Math.min(sEnd, inv.end);
+          if (overlapStart < overlapEnd) {
+            coveredDayMinutes += overlapEnd - overlapStart;
+          }
+        }
+      }
+      // If untimed tasks exist, attribute them as well (1h each up to day limit)
+      const untimedCovered = dayTasks.filter((t) => !t.startTime || !t.endTime).length * 60;
+      const totalCoveredHours = Math.min(dayAvail, (coveredDayMinutes + untimedCovered) / 60);
+
+      const wasted = Math.max(0, dayAvail - totalCoveredHours);
       totalWastedHours += wasted;
     } else if (day.dateStr > todayISO) {
       // Future day: all hours are upcoming
       futureTotalAvailable += dayAvail;
-      const free = Math.max(0, dayAvail - dayScheduled);
+      // Free available hours = day available minus scheduled coverage
+      let coveredDayMinutes = 0;
+      for (const slot of daySlots) {
+        const sStart = timeToMinutes(slot.start);
+        const sEnd = timeToMinutes(slot.end);
+        for (const inv of mergedTaskIntervals) {
+          const overlapStart = Math.max(sStart, inv.start);
+          const overlapEnd = Math.min(sEnd, inv.end);
+          if (overlapStart < overlapEnd) {
+            coveredDayMinutes += overlapEnd - overlapStart;
+          }
+        }
+      }
+      const untimedCovered = scheduledTasksDay.filter((t) => !t.startTime || !t.endTime).length * 60;
+      const scheduledDayHours = Math.min(dayAvail, (coveredDayMinutes + untimedCovered) / 60);
+
+      const free = Math.max(0, dayAvail - scheduledDayHours);
       futureFreeAvailableHours += free;
     } else {
-      // Today: evaluate slot by slot based on current GMT time
+      // Today: evaluate each slot minute-by-minute and hour-by-hour against current GMT time
       for (const slot of daySlots) {
         const slotStartMin = timeToMinutes(slot.start);
         const slotEndMin = timeToMinutes(slot.end);
         const slotHours = calculateSlotHours(slot.start, slot.end);
 
-        const tasksInSlot = dayTasks.filter((t) => {
-          if (!t.startTime || !t.endTime) return true;
-          const tStart = timeToMinutes(t.startTime);
-          const tEnd = timeToMinutes(t.endTime);
-          return Math.max(slotStartMin, tStart) < Math.min(slotEndMin, tEnd);
-        });
-
-        const tasksInSlotHours = tasksInSlot.reduce((acc, t) => {
-          if (t.startTime && t.endTime) {
-            const tStart = Math.max(slotStartMin, timeToMinutes(t.startTime));
-            const tEnd = Math.min(slotEndMin, timeToMinutes(t.endTime));
-            return acc + Math.max(0, (tEnd - tStart) / 60);
+        // Find intervals within this slot
+        const slotMergedIntervals: Array<{ start: number; end: number }> = [];
+        for (const inv of mergedTaskIntervals) {
+          const overlapStart = Math.max(slotStartMin, inv.start);
+          const overlapEnd = Math.min(slotEndMin, inv.end);
+          if (overlapStart < overlapEnd) {
+            slotMergedIntervals.push({ start: overlapStart, end: overlapEnd });
           }
-          return acc + 1;
-        }, 0);
+        }
+
+        const calcOverlapMinutes = (rangeStart: number, rangeEnd: number) => {
+          if (rangeStart >= rangeEnd) return 0;
+          let mins = 0;
+          for (const inv of slotMergedIntervals) {
+            const os = Math.max(rangeStart, inv.start);
+            const oe = Math.min(rangeEnd, inv.end);
+            if (os < oe) mins += oe - os;
+          }
+          return mins;
+        };
 
         if (nowMinutes >= slotEndMin) {
-          // Slot has passed today
+          // Slot has completely passed today
           pastAvailableHours += slotHours;
-          const wasted = Math.max(0, slotHours - tasksInSlotHours);
+          const coveredMins = calcOverlapMinutes(slotStartMin, slotEndMin);
+          const wasted = Math.max(0, (slotEndMin - slotStartMin - coveredMins) / 60);
           totalWastedHours += wasted;
         } else if (nowMinutes <= slotStartMin) {
-          // Slot is upcoming today
+          // Slot is completely upcoming today
           futureTotalAvailable += slotHours;
-          const free = Math.max(0, slotHours - tasksInSlotHours);
+          const coveredMins = calcOverlapMinutes(slotStartMin, slotEndMin);
+          const free = Math.max(0, (slotEndMin - slotStartMin - coveredMins) / 60);
           futureFreeAvailableHours += free;
         } else {
-          // Current time is inside this slot
+          // Current time is inside this active slot!
           const passedPortion = (nowMinutes - slotStartMin) / 60;
           const remainingPortion = (slotEndMin - nowMinutes) / 60;
           pastAvailableHours += passedPortion;
           futureTotalAvailable += remainingPortion;
 
-          const passedTasksHours = tasksInSlot.reduce((acc, t) => {
-            if (t.startTime && t.endTime) {
-              const tStart = Math.max(slotStartMin, timeToMinutes(t.startTime));
-              const tEnd = Math.min(nowMinutes, timeToMinutes(t.endTime));
-              return acc + Math.max(0, (tEnd - tStart) / 60);
-            }
-            return acc;
-          }, 0);
+          const passedCoveredMins = calcOverlapMinutes(slotStartMin, nowMinutes);
+          const futureCoveredMins = calcOverlapMinutes(nowMinutes, slotEndMin);
 
-          const futureTasksHours = tasksInSlot.reduce((acc, t) => {
-            if (t.startTime && t.endTime) {
-              const tStart = Math.max(nowMinutes, timeToMinutes(t.startTime));
-              const tEnd = Math.min(slotEndMin, timeToMinutes(t.endTime));
-              return acc + Math.max(0, (tEnd - tStart) / 60);
-            }
-            return acc;
-          }, 0);
+          const passedWasted = Math.max(0, (nowMinutes - slotStartMin - passedCoveredMins) / 60);
+          const futureFree = Math.max(0, (slotEndMin - nowMinutes - futureCoveredMins) / 60);
 
-          totalWastedHours += Math.max(0, passedPortion - passedTasksHours);
-          futureFreeAvailableHours += Math.max(0, remainingPortion - futureTasksHours);
+          totalWastedHours += passedWasted;
+          futureFreeAvailableHours += futureFree;
         }
       }
     }

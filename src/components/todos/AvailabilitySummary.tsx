@@ -36,24 +36,30 @@ export function AvailabilitySummary({
   onScheduleTask,
 }: AvailabilitySummaryProps) {
   // Live Greenwich Mean Time (GMT) clock in 12-hour format with hh:mm:ss AM/PM
+  const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
   const [gmtClock, setGmtClock] = useState<string>(() => formatGMTLiveTime());
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setGmtClock(formatGMTLiveTime());
+      const now = new Date();
+      setGmtClock(formatGMTLiveTime(now));
+      setCurrentTime(now);
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Current UK week info
-  const weekInfo = useMemo(() => getUKWeekDays(), []);
+  // Current UK week info (derived from live GMT time)
+  // Automatically shifts to the next week every Monday at 00:00:00 GMT
+  const weekInfo = useMemo(() => {
+    return getUKWeekDays();
+  }, [currentTime]);
 
   // Calculate day-aware metrics:
-  // - Past days' unallocated hours are marked as WASTED
-  // - Remaining hours only counts the unbooked available hours from today onwards to end of week
+  // - Automatically recalculates every minute and hour as GMT time moves forward
+  // - Automatically resets every Monday at 00:00 GMT when week bounds shift
   const metrics = useMemo(() => {
-    return calculateAdvancedWeeklyMetrics(availability, tasks);
-  }, [availability, tasks]);
+    return calculateAdvancedWeeklyMetrics(availability, tasks, currentTime);
+  }, [availability, tasks, currentTime]);
 
   return (
     <Card className="border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 via-transparent to-indigo-500/5 shadow-xs overflow-hidden">
@@ -77,9 +83,14 @@ export function AvailabilitySummary({
                 </span>
                 <span>GMT: {gmtClock}</span>
               </div>
+
+              {/* Hourly update & Monday reset badge */}
+              <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80">
+                Auto-updates every hour · Resets every Monday
+              </span>
             </div>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              Automated statistics tracking your configured weekly hours, scheduled commitments, and past wasted hours.
+            <p className="text-xs text-zinc-500 mt-1">
+              Automated statistics tracking your configured weekly hours, scheduled commitments, remaining free time, and past wasted hours. Resets every Monday at 00:00 GMT.
             </p>
           </div>
 
@@ -159,8 +170,8 @@ export function AvailabilitySummary({
               {metrics.remainingHoursToEndOfWeek}
               <span className="text-xs font-normal text-zinc-500 ml-1">hrs</span>
             </div>
-            <p className="text-[11px] text-zinc-400 truncate">
-              Free to end of week (past hours removed)
+            <p className="text-[11px] text-zinc-400 truncate" title="Free capacity until Sunday 23:59 GMT (updates every hour)">
+              Free remaining capacity (updates hourly)
             </p>
           </div>
 
@@ -181,8 +192,8 @@ export function AvailabilitySummary({
                 <span className="text-xs font-normal text-zinc-500 ml-1">hrs</span>
               </div>
             </div>
-            <p className="text-[11px] text-zinc-400">
-              Past hours with no tasks scheduled
+            <p className="text-[11px] text-zinc-400" title="Unused available hours. Resets every Monday at 00:00 GMT">
+              Past unscheduled hours · Resets Monday
             </p>
             <Progress
               value={metrics.wastedPercentage}

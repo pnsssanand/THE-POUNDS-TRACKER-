@@ -69,11 +69,14 @@ export function WeeklyPlannerModal({
   onDeleteTask,
 }: WeeklyPlannerModalProps) {
   const [currentWeekRefDate, setCurrentWeekRefDate] = useState<string>(todayISO());
+  const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
   const [gmtClock, setGmtClock] = useState<string>(() => formatGMTLiveTime());
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setGmtClock(formatGMTLiveTime());
+      const now = new Date();
+      setGmtClock(formatGMTLiveTime(now));
+      setCurrentTime(now);
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -83,7 +86,7 @@ export function WeeklyPlannerModal({
     [currentWeekRefDate]
   );
 
-  const { dateISO: gmtTodayStr } = useMemo(() => getGMTDateParts(), []);
+  const { dateISO: gmtTodayStr } = useMemo(() => getGMTDateParts(currentTime), [currentTime]);
 
   const isCurrentWeek = useMemo(() => {
     return weekInfo.days.some((d) => d.dateStr === gmtTodayStr);
@@ -102,7 +105,7 @@ export function WeeklyPlannerModal({
     setCurrentWeekRefDate(todayISO());
   };
 
-  // Calculate week tasks & advanced metrics
+  // Calculate week tasks & advanced metrics (hourly real-time update)
   const weekTasks = useMemo(() => {
     const start = weekInfo.startOfWeekISO;
     const end = weekInfo.endOfWeekISO;
@@ -110,8 +113,8 @@ export function WeeklyPlannerModal({
   }, [tasks, weekInfo]);
 
   const advancedMetrics = useMemo(() => {
-    return calculateAdvancedWeeklyMetrics(availability, tasks);
-  }, [availability, tasks]);
+    return calculateAdvancedWeeklyMetrics(availability, tasks, currentTime);
+  }, [availability, tasks, currentTime]);
 
   const scheduledWeekTasks = useMemo(
     () => weekTasks.filter((t) => t.status === "scheduled"),
