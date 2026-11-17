@@ -398,15 +398,26 @@ export function calculateAdvancedWeeklyMetrics(
   for (const day of weekInfo.days) {
     const daySlots = availability[day.dayName] || [];
     const dayAvail = calculateDayAvailableHours(daySlots);
-    const dayTasks = tasks.filter((t) => t.dueDate === day.dateStr);
 
-    const scheduledTasksDay = dayTasks.filter((t) => t.status === "scheduled");
-    const completedTasksDay = dayTasks.filter((t) => t.status === "completed");
+    // Completed tasks attributable to this day (matches completedAt date or dueDate)
+    const dayCompletedTasks = tasks.filter((t) => {
+      if (t.status !== "completed") return false;
+      if (t.completedAt) {
+        return t.completedAt.slice(0, 10) === day.dateStr;
+      }
+      return t.dueDate === day.dateStr;
+    });
+
+    // Scheduled tasks on this day
+    const dayScheduledTasks = tasks.filter((t) => {
+      if (t.status !== "scheduled") return false;
+      return t.dueDate === day.dateStr;
+    });
 
     // Scheduled hours: calculate based on unique time slots committed on this day
     const scheduledSlotKeys = new Set<string>();
     let dayScheduledUntimed = 0;
-    for (const t of scheduledTasksDay) {
+    for (const t of dayScheduledTasks) {
       if (t.startTime && t.endTime) {
         scheduledSlotKeys.add(`${t.startTime}-${t.endTime}`);
       } else {
@@ -418,9 +429,10 @@ export function calculateAdvancedWeeklyMetrics(
       const [s, e] = key.split("-");
       dayScheduled += calculateSlotHours(s, e);
     }
+    dayScheduled = Math.min(dayAvail, dayScheduled);
 
     // Completed hours: sum of actual time taken entered by user when completing tasks
-    const dayCompleted = completedTasksDay.reduce((acc, t) => {
+    const dayCompleted = dayCompletedTasks.reduce((acc, t) => {
       if (t.actualHours !== undefined && t.actualHours > 0) {
         return acc + t.actualHours;
       }
@@ -433,116 +445,69 @@ export function calculateAdvancedWeeklyMetrics(
     totalScheduledHours += dayScheduled;
     totalCompletedHours += dayCompleted;
 
-    // Collect all task intervals on this day to accurately measure covered vs uncovered time
-    const rawTaskIntervals = dayTasks
-      .filter((t) => t.startTime && t.endTime)
-      .map((t) => ({
-        start: timeToMinutes(t.startTime!),
-        end: timeToMinutes(t.endTime!),
-      }))
-      .filter((inv) => inv.start < inv.end);
-
-    const mergedTaskIntervals = mergeIntervals(rawTaskIntervals);
-
     if (day.dateStr < todayISO) {
-      // Past day: all hours on this day have passed
+      // Past day: the day is completely finished.
+      // At the end of the day, any available hours not completed are put in WASTED HOURS!
       pastAvailableHours += dayAvail;
-      // Hours utilized = non-overlapping task intervals within available slots
-      let coveredDayMinutes = 0;
-      for (const slot of daySlots) {
-        const sStart = timeToMinutes(slot.start);
-        const sEnd = timeToMinutes(slot.end);
-        for (const inv of mergedTaskIntervals) {
-          const overlapStart = Math.max(sStart, inv.start);
-          const overlapEnd = Math.min(sEnd, inv.end);
-          if (overlapStart < overlapEnd) {
-            coveredDayMinutes += overlapEnd - overlapStart;
-          }
-        }
-      }
-      // If untimed tasks exist, attribute them as well (1h each up to day limit)
-      const untimedCovered = dayTasks.filter((t) => !t.startTime || !t.endTime).length * 60;
-      const totalCoveredHours = Math.min(dayAvail, (coveredDayMinutes + untimedCovered) / 60);
-
-      const wasted = Math.max(0, dayAvail - totalCoveredHours);
+      const wasted = Math.max(0, Math.round((dayAvail - dayCompleted) * 10) / 10);
       totalWastedHours += wasted;
     } else if (day.dateStr > todayISO) {
-      // Future day: all hours are upcoming
+      // Future day: completely upcoming in the week
       futureTotalAvailable += dayAvail;
-      // Free available hours = day available minus scheduled coverage
-      let coveredDayMinutes = 0;
-      for (const slot of daySlots) {
-        const sStart = timeToMinutes(slot.start);
-        const sEnd = timeToMinutes(slot.end);
-        for (const inv of mergedTaskIntervals) {
-          const overlapStart = Math.max(sStart, inv.start);
-          const overlapEnd = Math.min(sEnd, inv.end);
-          if (overlapStart < overlapEnd) {
-            coveredDayMinutes += overlapEnd - overlapStart;
-          }
-        }
-      }
-      const untimedCovered = scheduledTasksDay.filter((t) => !t.startTime || !t.endTime).length * 60;
-      const scheduledDayHours = Math.min(dayAvail, (coveredDayMinutes + untimedCovered) / 60);
-
-      const free = Math.max(0, dayAvail - scheduledDayHours);
+      const free = Math.max(0, Math.round((dayAvail - dayScheduled) * 10) / 10);
       futureFreeAvailableHours += free;
     } else {
-      // Today: evaluate each slot minute-by-minute and hour-by-hour against current GMT time
-      for (const slot of daySlots) {
-        const slotStartMin = timeToMinutes(slot.start);
-        const slotEndMin = timeToMinutes(slot.end);
-        const slotHours = calculateSlotHours(slot.start, slot.end);
+      // Today (day.dateStr === todayISO)
+      // Evaluate based on configured slots and current time
+      const firstSlotStartMin = daySlots.length > 0
+        ? Math.min(...daySlots.map((s) => timeToMinutes(s.start)))
+        : 24 * 60;
+      const lastSlotEndMin = daySlots.length > 0
+        ? Math.max(...daySlots.map((s) => timeToMinutes(s.end)))
+        : 0;
 
-        // Find intervals within this slot
-        const slotMergedIntervals: Array<{ start: number; end: number }> = [];
-        for (const inv of mergedTaskIntervals) {
-          const overlapStart = Math.max(slotStartMin, inv.start);
-          const overlapEnd = Math.min(slotEndMin, inv.end);
-          if (overlapStart < overlapEnd) {
-            slotMergedIntervals.push({ start: overlapStart, end: overlapEnd });
+      if (nowMinutes >= lastSlotEndMin) {
+        // By the end of the day (all available hours of today have passed):
+        // Check how many hours were completed today, and put the rest of the hours into WASTED HOURS!
+        pastAvailableHours += dayAvail;
+        const wasted = Math.max(0, Math.round((dayAvail - dayCompleted) * 10) / 10);
+        totalWastedHours += wasted;
+        // 0 free capacity remaining for today
+      } else if (nowMinutes <= firstSlotStartMin) {
+        // Before today's available hours have started:
+        futureTotalAvailable += dayAvail;
+        const free = Math.max(0, Math.round((dayAvail - dayScheduled - dayCompleted) * 10) / 10);
+        futureFreeAvailableHours += free;
+      } else {
+        // During today's available window:
+        // Calculate how much available time has elapsed so far today
+        let elapsedAvailToday = 0;
+        for (const slot of daySlots) {
+          const sStart = timeToMinutes(slot.start);
+          const sEnd = timeToMinutes(slot.end);
+          if (nowMinutes >= sEnd) {
+            elapsedAvailToday += (sEnd - sStart) / 60;
+          } else if (nowMinutes > sStart) {
+            elapsedAvailToday += (nowMinutes - sStart) / 60;
           }
         }
+        elapsedAvailToday = Math.min(dayAvail, Math.round(elapsedAvailToday * 10) / 10);
+        const futureAvailToday = Math.max(0, Math.round((dayAvail - elapsedAvailToday) * 10) / 10);
 
-        const calcOverlapMinutes = (rangeStart: number, rangeEnd: number) => {
-          if (rangeStart >= rangeEnd) return 0;
-          let mins = 0;
-          for (const inv of slotMergedIntervals) {
-            const os = Math.max(rangeStart, inv.start);
-            const oe = Math.min(rangeEnd, inv.end);
-            if (os < oe) mins += oe - os;
-          }
-          return mins;
-        };
+        pastAvailableHours += elapsedAvailToday;
+        futureTotalAvailable += futureAvailToday;
 
-        if (nowMinutes >= slotEndMin) {
-          // Slot has completely passed today
-          pastAvailableHours += slotHours;
-          const coveredMins = calcOverlapMinutes(slotStartMin, slotEndMin);
-          const wasted = Math.max(0, (slotEndMin - slotStartMin - coveredMins) / 60);
-          totalWastedHours += wasted;
-        } else if (nowMinutes <= slotStartMin) {
-          // Slot is completely upcoming today
-          futureTotalAvailable += slotHours;
-          const coveredMins = calcOverlapMinutes(slotStartMin, slotEndMin);
-          const free = Math.max(0, (slotEndMin - slotStartMin - coveredMins) / 60);
-          futureFreeAvailableHours += free;
-        } else {
-          // Current time is inside this active slot!
-          const passedPortion = (nowMinutes - slotStartMin) / 60;
-          const remainingPortion = (slotEndMin - nowMinutes) / 60;
-          pastAvailableHours += passedPortion;
-          futureTotalAvailable += remainingPortion;
+        // Of the elapsed available hours today, uncompleted elapsed hours are wasted so far
+        const wastedSoFarToday = Math.max(0, Math.round((elapsedAvailToday - dayCompleted) * 10) / 10);
+        totalWastedHours += wastedSoFarToday;
 
-          const passedCoveredMins = calcOverlapMinutes(slotStartMin, nowMinutes);
-          const futureCoveredMins = calcOverlapMinutes(nowMinutes, slotEndMin);
-
-          const passedWasted = Math.max(0, (nowMinutes - slotStartMin - passedCoveredMins) / 60);
-          const futureFree = Math.max(0, (slotEndMin - nowMinutes - futureCoveredMins) / 60);
-
-          totalWastedHours += passedWasted;
-          futureFreeAvailableHours += futureFree;
-        }
+        // Free capacity remaining today = future available minus upcoming scheduled/surplus
+        const surplusCompleted = Math.max(0, dayCompleted - elapsedAvailToday);
+        const freeToday = Math.max(
+          0,
+          Math.round((futureAvailToday - dayScheduled - surplusCompleted) * 10) / 10
+        );
+        futureFreeAvailableHours += freeToday;
       }
     }
   }

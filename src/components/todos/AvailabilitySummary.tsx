@@ -170,8 +170,8 @@ export function AvailabilitySummary({
               {metrics.remainingHoursToEndOfWeek}
               <span className="text-xs font-normal text-zinc-500 ml-1">hrs</span>
             </div>
-            <p className="text-[11px] text-zinc-400 truncate" title="Free capacity until Sunday 23:59 GMT (updates every hour)">
-              Free remaining capacity (updates hourly)
+            <p className="text-[11px] text-zinc-400 truncate" title="Free capacity until Sunday 23:59 GMT (updates daily and hourly)">
+              Free remaining capacity to Sunday
             </p>
           </div>
 
@@ -192,8 +192,8 @@ export function AvailabilitySummary({
                 <span className="text-xs font-normal text-zinc-500 ml-1">hrs</span>
               </div>
             </div>
-            <p className="text-[11px] text-zinc-400" title="Unused available hours. Resets every Monday at 00:00 GMT">
-              Past unscheduled hours · Resets Monday
+            <p className="text-[11px] text-zinc-400" title="Uncompleted available hours. Resets every Monday at 00:00 GMT">
+              Uncompleted available hours · Resets Monday
             </p>
             <Progress
               value={metrics.wastedPercentage}
