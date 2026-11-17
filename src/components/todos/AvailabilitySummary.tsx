@@ -26,7 +26,6 @@ interface AvailabilitySummaryProps {
   onOpenAvailability: () => void;
   onOpenPlanner: () => void;
   onScheduleTask: () => void;
-  onViewCompleted?: () => void;
 }
 
 export function AvailabilitySummary({
@@ -35,7 +34,6 @@ export function AvailabilitySummary({
   onOpenAvailability,
   onOpenPlanner,
   onScheduleTask,
-  onViewCompleted,
 }: AvailabilitySummaryProps) {
   // Live Greenwich Mean Time (GMT) clock in 12-hour format with hh:mm:ss AM/PM
   const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
@@ -150,30 +148,16 @@ export function AvailabilitySummary({
           </div>
 
           {/* 3. Completed Hours */}
-          <div
-            onClick={onViewCompleted}
-            className={cn(
-              "p-3.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-1 transition-all select-none",
-              onViewCompleted && "cursor-pointer hover:border-emerald-400 hover:shadow-xs group"
-            )}
-            title={onViewCompleted ? "Click to view completed tasks breakdown" : undefined}
-          >
+          <div className="p-3.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-1">
             <div className="flex items-center justify-between text-xs text-zinc-500">
-              <span className="font-medium group-hover:text-emerald-600 transition-colors">Completed Hours</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform" />
+              <span className="font-medium">Completed Hours</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
             <div className="text-2xl sm:text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
               {metrics.completedHours}
               <span className="text-xs font-normal text-zinc-500 ml-1">hrs</span>
             </div>
-            <p className="text-[11px] text-zinc-400 flex items-center justify-between">
-              <span>Achieved this week</span>
-              {onViewCompleted && (
-                <span className="text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold underline">
-                  View →
-                </span>
-              )}
-            </p>
+            <p className="text-[11px] text-zinc-400">Achieved this week</p>
           </div>
 
           {/* 4. Remaining Hours (Free to End of Week, past hours deducted) */}
