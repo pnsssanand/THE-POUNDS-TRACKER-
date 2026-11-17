@@ -18,6 +18,7 @@ import {
   subscribeWeeklyAvailability,
   DEFAULT_WEEKLY_AVAILABILITY,
   formatTime12h,
+  calculateSlotHours,
 } from "../services/availabilityService";
 import type { TodoTask, TaskPriority, WeeklyAvailability } from "../types";
 import { formatDateUK, todayISO } from "../lib/format";
@@ -61,6 +62,23 @@ export const Route = createFileRoute("/todos")({
   component: TodoListPage,
 });
 
+const WEEK_OPTIONS = [
+  { value: "all", label: "All Weeks (Full Month)" },
+  { value: "1", label: "Week 1 (1st – 7th)" },
+  { value: "2", label: "Week 2 (8th – 14th)" },
+  { value: "3", label: "Week 3 (15th – 21st)" },
+  { value: "4", label: "Week 4 (22nd – 28th)" },
+  { value: "5", label: "Week 5 (29th – 31st)" },
+];
+
+function formatMonthName(monthStr: string): string {
+  if (monthStr === "all") return "All Months";
+  const [y, m] = monthStr.split("-").map(Number);
+  if (!y || !m) return monthStr;
+  const d = new Date(y, m - 1, 1);
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+
 function TodoListPage() {
   const { user } = useAuth();
   const uid = user?.uid;
@@ -94,6 +112,10 @@ function TodoListPage() {
 
   // Active tab state
   const [activeTab, setActiveTab] = useState<"scheduled" | "completed">("scheduled");
+
+  // Completed tasks period filter state (Month & Week dropdowns)
+  const [completedMonth, setCompletedMonth] = useState<string>(() => todayISO().slice(0, 7)); // e.g. "2026-11"
+  const [completedWeek, setCompletedWeek] = useState<string>("all"); // "all", "1", "2", "3", "4", "5"
 
   // Inline Quick Add state
   const [quickTitle, setQuickTitle] = useState("");
@@ -234,18 +256,99 @@ function TodoListPage() {
     [scheduledTasks, searchTerm, categoryFilter, priorityFilter, sortBy]
   );
 
+  // Available months extracted from completed tasks (and current month)
+  const availableCompletedMonths = useMemo(() => {
+    const set = new Set<string>();
+    const currentM = todayISO().slice(0, 7);
+    set.add(currentM);
+    for (const t of completedTasks) {
+      const m = t.completedAt ? t.completedAt.slice(0, 7) : t.dueDate.slice(0, 7);
+      if (m && m.length === 7) set.add(m);
+    }
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [completedTasks]);
+
+  // Filter completed tasks by Month, Week, Search, Category, Priority
   const filteredCompleted = useMemo(() => {
     return completedTasks
       .filter((task) => {
+        const taskDate = task.completedAt ? task.completedAt.slice(0, 10) : task.dueDate;
+        const taskMonth = taskDate.slice(0, 7);
+        const dayNum = parseInt(taskDate.slice(8, 10), 10);
+        const taskWeek =
+          dayNum <= 7 ? "1" : dayNum <= 14 ? "2" : dayNum <= 21 ? "3" : dayNum <= 28 ? "4" : "5";
+
+        // Month filter
+        if (completedMonth !== "all" && taskMonth !== completedMonth) {
+          return false;
+        }
+
+        // Week filter (1st, 2nd, 3rd, 4th, 5th week)
+        if (completedWeek !== "all" && taskWeek !== completedWeek) {
+          return false;
+        }
+
         const matchesSearch =
           task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (task.description && task.description.toLowerCase().includes(searchTerm.toLowerCase()));
+          (task.description && task.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (task.completionNotes &&
+            task.completionNotes.toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesCategory = categoryFilter === "all" || task.category === categoryFilter;
         const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
         return matchesSearch && matchesCategory && matchesPriority;
       })
-      .sort((a, b) => (b.completedAt || b.dueDate).localeCompare(a.completedAt || a.dueDate));
-  }, [completedTasks, searchTerm, categoryFilter, priorityFilter]);
+      .sort((a, b) => {
+        const dateA = a.completedAt ? a.completedAt.slice(0, 10) : a.dueDate;
+        const dateB = b.completedAt ? b.completedAt.slice(0, 10) : b.dueDate;
+        const diff = dateB.localeCompare(dateA);
+        if (diff !== 0) return diff;
+        return (b.completedAt || "").localeCompare(a.completedAt || "");
+      });
+  }, [completedTasks, completedMonth, completedWeek, searchTerm, categoryFilter, priorityFilter]);
+
+  // Group filtered completed tasks by Date (with task counts and total hours per date)
+  const groupedCompletedTasks = useMemo(() => {
+    const map = new Map<string, TodoTask[]>();
+
+    for (const task of filteredCompleted) {
+      const dateKey = task.completedAt ? task.completedAt.slice(0, 10) : task.dueDate;
+      if (!map.has(dateKey)) {
+        map.set(dateKey, []);
+      }
+      map.get(dateKey)!.push(task);
+    }
+
+    const groups: Array<{
+      dateStr: string;
+      tasks: TodoTask[];
+      totalHours: number;
+    }> = [];
+
+    for (const [dateStr, list] of map.entries()) {
+      const totalHours = list.reduce((acc, t) => {
+        if (t.actualHours !== undefined && t.actualHours > 0) return acc + t.actualHours;
+        if (t.startTime && t.endTime) return acc + calculateSlotHours(t.startTime, t.endTime);
+        return acc + 1;
+      }, 0);
+
+      groups.push({
+        dateStr,
+        tasks: list,
+        totalHours: Math.round(totalHours * 10) / 10,
+      });
+    }
+
+    return groups.sort((a, b) => b.dateStr.localeCompare(a.dateStr));
+  }, [filteredCompleted]);
+
+  // Total completed hours within currently filtered period
+  const totalCompletedHoursInFilter = useMemo(() => {
+    return (
+      Math.round(
+        groupedCompletedTasks.reduce((acc, g) => acc + g.totalHours, 0) * 10
+      ) / 10
+    );
+  }, [groupedCompletedTasks]);
 
   // Open Schedule Dialog for a brand new task
   const handleOpenScheduleNew = (date?: string, startTime?: string, endTime?: string) => {
@@ -580,12 +683,20 @@ function TodoListPage() {
         onOpenAvailability={() => setIsAvailabilityOpen(true)}
         onOpenPlanner={() => setIsPlannerOpen(true)}
         onScheduleTask={() => handleOpenScheduleNew()}
+        onViewCompleted={() => {
+          setActiveTab("completed");
+          document.getElementById("todo-tabs-section")?.scrollIntoView({ behavior: "smooth" });
+        }}
       />
 
       {/* Metric Cards Row */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Scheduled Tasks */}
-        <Card className="shadow-xs border-l-4 border-l-emerald-500">
+        <Card
+          onClick={() => setActiveTab("scheduled")}
+          className="shadow-xs border-l-4 border-l-emerald-500 cursor-pointer hover:shadow-md transition-all select-none"
+          title="Click to view scheduled tasks"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-zinc-500">Scheduled Tasks</CardTitle>
             <Clock className="w-4 h-4 text-emerald-600" />
@@ -641,18 +752,27 @@ function TodoListPage() {
         </Card>
 
         {/* Completed Tasks & Progress */}
-        <Card className="shadow-xs border-l-4 border-l-indigo-500">
+        <Card
+          onClick={() => {
+            setActiveTab("completed");
+            document.getElementById("todo-tabs-section")?.scrollIntoView({ behavior: "smooth" });
+          }}
+          className="shadow-xs border-l-4 border-l-indigo-500 cursor-pointer hover:shadow-md hover:border-indigo-400 transition-all select-none group"
+          title="Click to view completed tasks breakdown"
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-zinc-500">Completed Tasks</CardTitle>
-            <CheckCircle2 className="w-4 h-4 text-indigo-500" />
+            <CardTitle className="text-sm font-medium text-zinc-500 group-hover:text-indigo-600 transition-colors">
+              Completed Tasks
+            </CardTitle>
+            <CheckCircle2 className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
           </CardHeader>
           <CardContent>
             <div className="flex items-baseline justify-between">
               <span className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
                 {completedTasks.length}
               </span>
-              <span className="text-xs font-semibold text-zinc-500">
-                {completionRate}% finished
+              <span className="text-xs font-semibold text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                {completionRate}% finished · View →
               </span>
             </div>
             <Progress value={completionRate} className="h-1.5 mt-2 bg-zinc-100 dark:bg-zinc-800" />
@@ -721,6 +841,7 @@ function TodoListPage() {
 
       {/* Main Tabs (Scheduled vs Completed) */}
       <Tabs
+        id="todo-tabs-section"
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as "scheduled" | "completed")}
         className="w-full space-y-6"
@@ -896,22 +1017,86 @@ function TodoListPage() {
 
         {/* Tab 2: Completed Tasks Content */}
         <TabsContent value="completed" className="mt-0 space-y-4">
-          {completedTasks.length > 0 && (
-            <div className="flex justify-between items-center px-1">
-              <p className="text-xs text-zinc-500">
-                Showing {filteredCompleted.length} completed task{filteredCompleted.length === 1 ? "" : "s"}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleClearCompleted}
-                className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 dark:border-red-900"
-              >
-                <Trash2 className="w-3.5 h-3.5 mr-1" />
-                Clear All Completed
-              </Button>
+          {/* Controls Bar: Month Select, Week Select, Counts & Clear */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Month Dropdown */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-zinc-500">Month:</span>
+                <Select value={completedMonth} onValueChange={setCompletedMonth}>
+                  <SelectTrigger className="w-[160px] h-9 text-xs bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700">
+                    <Calendar className="w-3.5 h-3.5 mr-1.5 text-zinc-500" />
+                    <SelectValue placeholder="Select Month" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Months</SelectItem>
+                    {availableCompletedMonths.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {formatMonthName(m)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Week Dropdown (1st, 2nd, 3rd, 4th, 5th week) */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-zinc-500">Week:</span>
+                <Select value={completedWeek} onValueChange={setCompletedWeek}>
+                  <SelectTrigger className="w-[185px] h-9 text-xs bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700">
+                    <Clock className="w-3.5 h-3.5 mr-1.5 text-zinc-500" />
+                    <SelectValue placeholder="Select Week" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WEEK_OPTIONS.map((w) => (
+                      <SelectItem key={w.value} value={w.value}>
+                        {w.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Reset to current month filter */}
+              {(completedMonth !== todayISO().slice(0, 7) || completedWeek !== "all") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setCompletedMonth(todayISO().slice(0, 7));
+                    setCompletedWeek("all");
+                  }}
+                  className="h-8 text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                >
+                  Reset Filter
+                </Button>
+              )}
             </div>
-          )}
+
+            {/* Right: Task Counts & Clear All */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {filteredCompleted.length} {filteredCompleted.length === 1 ? "task" : "tasks"}
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold">
+                <Clock className="w-3.5 h-3.5" />
+                {totalCompletedHoursInFilter} hrs logged
+              </span>
+
+              {completedTasks.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearCompleted}
+                  className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 dark:border-red-900 ml-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                  Clear All
+                </Button>
+              )}
+            </div>
+          </div>
 
           {loading ? (
             <div className="text-center py-16 text-zinc-500 animate-pulse">
@@ -922,142 +1107,154 @@ function TodoListPage() {
               <div className="w-12 h-12 mx-auto rounded-full bg-indigo-100 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
-              <h3 className="font-semibold text-lg">No completed tasks</h3>
+              <h3 className="font-semibold text-lg">No completed tasks in this view</h3>
               <p className="text-sm text-zinc-500 max-w-sm mx-auto">
-                Tasks you mark as done in the Scheduled tab will be archived and shown here.
+                {completedWeek !== "all" || completedMonth !== "all"
+                  ? "No completed tasks match your selected Month and Week filter. Try changing the dropdown to 'All Weeks' or 'All Months'."
+                  : "Tasks you mark as done in the Scheduled tab will be archived and shown here."}
               </p>
             </div>
           ) : (
-            <div className="grid gap-3">
-              {filteredCompleted.map((task) => (
-                <Card
-                  key={task.id}
-                  className="shadow-2xs border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 opacity-75 hover:opacity-100 transition-opacity"
-                >
-                  <CardContent className="p-4 sm:p-5 flex items-start gap-3.5">
-                    {/* Uncheck / Restore Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleRestoreTask(task)}
-                      className="mt-0.5 text-emerald-600 hover:text-zinc-500 dark:text-emerald-400 transition-colors shrink-0"
-                      title="Restore to scheduled"
-                    >
-                      <CheckCircle2 className="w-5 h-5 fill-emerald-100 dark:fill-emerald-950" />
-                    </button>
+            /* Completed tasks grouped by Date with single-line rows */
+            <div className="space-y-4">
+              {groupedCompletedTasks.map((group) => {
+                const isTodayGroup = group.dateStr === todayISO();
+                const [y, m, d] = group.dateStr.split("-").map(Number);
+                const dateObj = new Date(y, m - 1, d);
+                const dayName = dateObj.toLocaleDateString("en-GB", { weekday: "long" });
+                const formattedDate = dateObj.toLocaleDateString("en-GB", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                });
 
-                    {/* Task Info (Strikethrough) */}
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h4
-                          onClick={() => setViewingCompletedTask(task)}
-                          className="font-semibold text-base line-through text-zinc-500 dark:text-zinc-400 cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
-                          title="Click to view task details and completion notes"
-                        >
-                          {task.title}
-                        </h4>
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-medium">
-                          {task.category}
+                return (
+                  <div
+                    key={group.dateStr}
+                    className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-2xs"
+                  >
+                    {/* Date Header with task count */}
+                    <div className="px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span className="font-bold text-xs sm:text-sm text-zinc-900 dark:text-zinc-100">
+                          {isTodayGroup ? "Today · " : ""}
+                          {dayName}, {formattedDate}
+                        </span>
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300">
+                          {group.tasks.length} {group.tasks.length === 1 ? "task" : "tasks"}
                         </span>
                       </div>
 
-                      {task.description && (
-                        <p className="text-sm text-zinc-400 line-through whitespace-pre-wrap">
-                          {task.description}
-                        </p>
-                      )}
-
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 pt-1">
-                        <span>Due: {formatDateUK(task.dueDate)}</span>
-                        {task.timeSlotLabel ? (
-                          <span>· Slot: {task.timeSlotLabel}</span>
-                        ) : task.startTime && task.endTime ? (
-                          <span>
-                            · {formatTime12h(task.startTime)} – {formatTime12h(task.endTime)}
-                          </span>
-                        ) : null}
-
-                        {task.actualHours !== undefined ? (
-                          <span className="font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950 px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1">
-                            ⏱️ Time taken: {task.actualHours} {task.actualHours === 1 ? "hr" : "hrs"}
-                          </span>
-                        ) : null}
-
-                        {task.completedAt && (
-                          <span>
-                            · Finished on {new Date(task.completedAt).toLocaleDateString("en-GB")}
-                          </span>
-                        )}
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                        <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{group.totalHours} hrs logged</span>
                       </div>
+                    </div>
 
-                      {/* Display What I Have Done / Completion Notes */}
-                      {task.completionNotes ? (
+                    {/* Tasks in SINGLE LINE */}
+                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                      {group.tasks.map((task) => (
                         <div
-                          onClick={() => setViewingCompletedTask(task)}
-                          className="mt-2.5 p-3 rounded-lg bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80 cursor-pointer hover:bg-emerald-100/50 dark:hover:bg-emerald-900/40 transition-colors"
-                          title="Click to view or edit completion notes"
+                          key={task.id}
+                          className="flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40 transition-colors group"
                         >
-                          <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 mb-1">
-                            <span className="flex items-center gap-1.5">
-                              <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              What I Have Done:
-                            </span>
-                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal underline">
-                              View / Edit Notes
-                            </span>
-                          </div>
-                          <p className="whitespace-pre-wrap text-zinc-700 dark:text-zinc-300 text-xs leading-relaxed line-clamp-3">
-                            {task.completionNotes}
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="pt-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setViewingCompletedTask(task)}
-                            className="text-xs text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-medium inline-flex items-center gap-1"
-                          >
-                            <FileText className="w-3 h-3" />
-                            + Add notes on what was done
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                          {/* Left side: checkbox + title + badges (single line) */}
+                          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreTask(task)}
+                              className="text-emerald-600 hover:text-zinc-400 dark:text-emerald-400 transition-colors shrink-0"
+                              title="Click to restore to scheduled"
+                            >
+                              <CheckCircle2 className="w-4 h-4 fill-emerald-100 dark:fill-emerald-950" />
+                            </button>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setViewingCompletedTask(task)}
-                        className="h-8 text-xs text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/50 font-medium"
-                        title="View completion notes"
-                      >
-                        <FileText className="w-3.5 h-3.5 mr-1" />
-                        View Notes
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRestoreTask(task)}
-                        className="h-8 text-xs text-zinc-600 hover:text-emerald-600"
-                        title="Restore to scheduled"
-                      >
-                        <Undo2 className="w-3.5 h-3.5 mr-1" />
-                        Undo
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(task)}
-                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50"
-                        title="Delete task"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                            {/* Title with Strikethrough (Click to see what was done) */}
+                            <span
+                              onClick={() => setViewingCompletedTask(task)}
+                              className="font-medium text-xs sm:text-sm line-through text-zinc-500 dark:text-zinc-400 truncate cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors"
+                              title={task.title}
+                            >
+                              {task.title}
+                            </span>
+
+                            {/* Category badge */}
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-medium shrink-0 hidden sm:inline">
+                              {task.category}
+                            </span>
+
+                            {/* Priority badge */}
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider text-zinc-500 border border-zinc-200 dark:border-zinc-800 shrink-0 hidden md:inline">
+                              {task.priority}
+                            </span>
+
+                            {/* Time slot label */}
+                            {task.timeSlotLabel ? (
+                              <span className="text-[11px] text-zinc-400 shrink-0 hidden lg:inline">
+                                {task.timeSlotLabel}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {/* Right side: Time Taken + Notes Pill + Actions (single line) */}
+                          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                            {/* Actual Time Taken */}
+                            {task.actualHours !== undefined && task.actualHours > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/80 shrink-0">
+                                <Clock className="w-3 h-3 text-emerald-600" />
+                                <span>{task.actualHours} {task.actualHours === 1 ? "hr" : "hrs"}</span>
+                              </span>
+                            ) : null}
+
+                            {/* What I Have Done / Notes Pill: Click to see what I did there! */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setViewingCompletedTask(task)}
+                              className={cn(
+                                "h-7 px-2 text-xs font-medium shrink-0 flex items-center gap-1",
+                                task.completionNotes
+                                  ? "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/80"
+                                  : "text-zinc-500 hover:text-emerald-600 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                              )}
+                              title={task.completionNotes ? `What I did: ${task.completionNotes}` : "Click to view or add notes"}
+                            >
+                              <FileText className="w-3 h-3 text-emerald-600" />
+                              <span className="max-w-[130px] truncate hidden md:inline">
+                                {task.completionNotes ? task.completionNotes : "View Notes"}
+                              </span>
+                              <span className="md:hidden">Notes</span>
+                            </Button>
+
+                            {/* Undo / Restore to Scheduled */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleRestoreTask(task)}
+                              className="h-7 w-7 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                              title="Restore task to scheduled"
+                            >
+                              <Undo2 className="w-3.5 h-3.5" />
+                            </Button>
+
+                            {/* Delete Task */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(task)}
+                              className="h-7 w-7 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+                              title="Delete task"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </TabsContent>
