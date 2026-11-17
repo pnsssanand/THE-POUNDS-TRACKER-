@@ -359,11 +359,30 @@ export function ShoppingPage() {
     setIsCheckingOut(true);
     try {
       const today = new Date().toISOString().split("T")[0];
-      const itemsList = (inBasketCost > 0 ? boughtItems : items)
-        .map((i) => `${i.name} (x${i.quantity || 1})`)
+      const itemsToCheckout = inBasketCost > 0 ? boughtItems : items;
+
+      const itemsData = itemsToCheckout.map((i) => {
+        const qty = Number(i.quantity) || 1;
+        const unitPrice = Number(i.estimatedPrice) || 0;
+        const total = Math.round(unitPrice * qty * 100) / 100;
+        return {
+          id: i.id,
+          name: i.name,
+          quantity: qty,
+          unit: i.unit || "pcs",
+          price: unitPrice,
+          total: total,
+        };
+      });
+
+      const formattedNotes = itemsData
+        .map(
+          (i) =>
+            `${i.name} (x${i.quantity} ${i.unit || "pcs"} @ £${i.price.toFixed(2)} = £${i.total.toFixed(2)})`
+        )
         .join(", ");
 
-      // 1. Add expense
+      // 1. Add expense with full itemized breakdown
       await addExpense(uid, {
         purpose: checkoutPurpose || "Shopping Cart Purchase",
         amount: costToCharge,
@@ -371,7 +390,8 @@ export function ShoppingPage() {
         category: (checkoutCategory as any) || "Groceries",
         paymentMode: checkoutPaymentMode,
         bankName: checkoutPaymentMode === "card" ? checkoutBank : undefined,
-        notes: `Items: ${itemsList}`,
+        notes: `Items: ${formattedNotes}`,
+        items: itemsData,
       });
 
       // 2. Subtract from Bank Balance

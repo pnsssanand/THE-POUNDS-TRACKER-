@@ -62,6 +62,15 @@ export type ExpenseCategory =
   | "Subscriptions"
   | "Other";
 
+export interface ShoppingExpenseItem {
+  id?: string;
+  name: string;
+  quantity: number;
+  unit?: string;
+  price: number; // Unit price in GBP
+  total: number; // Total price in GBP
+}
+
 export interface Expense {
   id: string;
   purpose: string;
@@ -71,6 +80,7 @@ export interface Expense {
   paymentMode: PaymentMode;
   bankName?: string | undefined;
   notes?: string | undefined;
+  items?: ShoppingExpenseItem[] | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }

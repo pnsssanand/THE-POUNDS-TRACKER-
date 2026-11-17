@@ -9,7 +9,7 @@ import {
   EXPENSE_CATEGORIES
 } from "../services/expenseService";
 import { getSettings, updateSettings, DEFAULT_SETTINGS } from "../services/userService";
-import type { Expense, UserSettings } from "../types";
+import type { Expense, UserSettings, ShoppingExpenseItem } from "../types";
 import { calculateDailyExpenses, calculateMonthlyExpenses, calculateTotalExpenses } from "../lib/calc";
 import { formatMoney, formatINR, formatDateUK, formatSignedMoney, monthKey, previousMonthKey, getStoredGbpRate, setStoredGbpRate } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -32,9 +32,12 @@ import {
   TrendingDown, 
   Check, 
   X,
-  ArrowLeftRight
+  ArrowLeftRight,
+  ShoppingCart,
+  Receipt
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { ShoppingBreakdownDialog } from "../components/expenses/ShoppingBreakdownDialog";
 
 export const Route = createFileRoute("/expenses")({
   component: ExpensesPage,
@@ -56,6 +59,10 @@ function ExpensesPage() {
   // Dialog state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Shopping breakdown dialog state
+  const [viewingShoppingExpense, setViewingShoppingExpense] = useState<Expense | null>(null);
+  const [isShoppingBreakdownOpen, setIsShoppingBreakdownOpen] = useState(false);
   
   // Form state
   const [purpose, setPurpose] = useState("");
@@ -268,6 +275,34 @@ function ExpensesPage() {
         );
       }
       loadData();
+    }
+  };
+
+  const handleSaveExpenseItems = async (
+    expenseId: string,
+    updatedItems: ShoppingExpenseItem[],
+    updatedNotes: string
+  ) => {
+    if (!uid) return;
+    const targetExpense = expenses.find((e) => e.id === expenseId);
+    if (!targetExpense) return;
+
+    const updatedData = {
+      ...targetExpense,
+      items: updatedItems,
+      notes: updatedNotes,
+    };
+
+    await updateExpense(uid, expenseId, updatedData);
+
+    setExpenses((prev) =>
+      prev.map((e) => (e.id === expenseId ? { ...e, items: updatedItems, notes: updatedNotes } : e))
+    );
+
+    if (viewingShoppingExpense?.id === expenseId) {
+      setViewingShoppingExpense((prev) =>
+        prev ? { ...prev, items: updatedItems, notes: updatedNotes } : null
+      );
     }
   };
 
@@ -670,37 +705,91 @@ function ExpensesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredExpenses.map((expense) => (
-                    <TableRow key={expense.id}>
-                      <TableCell className="font-medium whitespace-nowrap">{formatDateUK(expense.date)}</TableCell>
-                      <TableCell>{expense.purpose}</TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center rounded-full bg-zinc-100 dark:bg-zinc-800 px-2.5 py-0.5 text-xs font-medium text-zinc-800 dark:text-zinc-200">
-                          {expense.category}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-zinc-500 font-medium">
-                        {formatINR(expense.amount)}
-                      </TableCell>
-                      <TableCell className="text-right whitespace-nowrap">
-                        <span className="font-bold text-zinc-900 dark:text-zinc-100">{formatMoney(expense.amount)}</span>
-                      </TableCell>
-                      <TableCell className="text-right whitespace-nowrap">
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(expense)} className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 mr-1">
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(expense.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredExpenses.map((expense) => {
+                    const isShoppingExpense = Boolean(
+                      (expense.items && expense.items.length > 0) ||
+                      expense.purpose.toLowerCase().startsWith("shopping") ||
+                      expense.notes?.toLowerCase().includes("items:") ||
+                      expense.category === "Shopping"
+                    );
+
+                    return (
+                      <TableRow key={expense.id} className="hover:bg-zinc-50/70 dark:hover:bg-zinc-900/50 transition-colors">
+                        <TableCell className="font-medium whitespace-nowrap">{formatDateUK(expense.date)}</TableCell>
+                        <TableCell>
+                          {isShoppingExpense ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setViewingShoppingExpense(expense);
+                                setIsShoppingBreakdownOpen(true);
+                              }}
+                              className="text-left font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 inline-flex items-center gap-1.5 group cursor-pointer"
+                              title="Click to view each item's price breakdown"
+                            >
+                              <ShoppingCart className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
+                              <span className="underline decoration-emerald-500/40 underline-offset-2 group-hover:decoration-emerald-500">
+                                {expense.purpose}
+                              </span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-semibold shrink-0">
+                                View items
+                              </span>
+                            </button>
+                          ) : (
+                            <span>{expense.purpose}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center rounded-full bg-zinc-100 dark:bg-zinc-800 px-2.5 py-0.5 text-xs font-medium text-zinc-800 dark:text-zinc-200">
+                            {expense.category}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-zinc-500 font-medium">
+                          {formatINR(expense.amount)}
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          <span className="font-bold text-zinc-900 dark:text-zinc-100">{formatMoney(expense.amount)}</span>
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          {isShoppingExpense && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setViewingShoppingExpense(expense);
+                                setIsShoppingBreakdownOpen(true);
+                              }}
+                              className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 mr-1"
+                              title="View itemized prices"
+                            >
+                              <Receipt className="h-4 w-4" />
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="icon" onClick={() => handleEdit(expense)} className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 mr-1">
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(expense.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Shopping Cart Itemized Breakdown Dialog */}
+      <ShoppingBreakdownDialog
+        open={isShoppingBreakdownOpen}
+        onOpenChange={setIsShoppingBreakdownOpen}
+        expense={viewingShoppingExpense}
+        gbpRate={gbpRate}
+        onSaveExpenseItems={handleSaveExpenseItems}
+      />
     </div>
   );
 }
